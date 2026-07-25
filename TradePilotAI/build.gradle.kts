@@ -1,28 +1,20 @@
+// Root build.gradle.kts — hanya deklarasi plugin versi, tidak apply di root.
+//
+// PENTING: pakai alias(libs.plugins.xxx) di sini, BUKAN id("...") version "..." —
+// mencampur dua gaya deklarasi untuk plugin yang sama (id+version literal di root
+// vs alias version-catalog di submodule) memicu bug Gradle "plugin is already on
+// the classpath with an unknown version" (lihat gradle/gradle#20084). Dengan
+// alias(...) di root DAN di submodule, keduanya resolve lewat satu jalur yang sama
+// (gradle/libs.versions.toml), tidak ada ambiguitas versi.
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.hilt)
-    alias(libs.plugins.ksp)
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.library) apply false
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.hilt) apply false
+    alias(libs.plugins.ksp) apply false
 }
 
-android {
-    namespace = "com.tradepilot.core.network"
-    compileSdk = libs.versions.compileSdk.get().toInt()
-    defaultConfig { minSdk = libs.versions.minSdk.get().toInt() }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions { jvmTarget = "17" }
-}
-
-dependencies {
-    implementation(project(":core:core-security"))
-    implementation(libs.retrofit.core)
-    implementation(libs.retrofit.moshi)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
-    implementation(libs.moshi)
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
+tasks.register("clean", Delete::class) {
+    delete(rootProject.layout.buildDirectory)
 }
