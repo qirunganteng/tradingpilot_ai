@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TradePilot AI</string>
+
+    <!-- Activity Bar -->
+    <string name="nav_browser">Browser</string>
+    <string name="nav_ai_analysis">AI Analysis</string>
+    <string name="nav_journal">Journal</string>
+    <string name="nav_statistic">Statistic</string>
+    <string name="nav_notification">Notification</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Browser -->
+    <string name="browser_refresh">Refresh</string>
+    <string name="browser_back">Back</string>
+    <string name="browser_forward">Forward</string>
+    <string name="browser_fullscreen">Fullscreen</string>
+    <string name="btn_analyze">ANALYZE</string>
+
+    <!-- Disclaimer -->
+    <string name="disclaimer_not_broker">This app is not a broker. All BUY/SELL transactions are executed by you.</string>
+    <string name="disclaimer_ai_no_trade">The AI only provides recommendations and never executes trades.</string>
+
+    <!-- Money Management -->
+    <string name="mm_title">Risk Management</string>
+    <string name="mm_risk_percent">Risk (%)</string>
+    <string name="mm_lot_size">Lot Size</string>
+    <string name="mm_daily_loss_limit">Daily Loss Limit</string>
+
+    <!-- Settings -->
+    <string name="settings_api_key">Gemini API Key</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_theme">Theme</string>
+</resources>
