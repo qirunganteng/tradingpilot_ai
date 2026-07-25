@@ -1,0 +1,27 @@
+# --- Android (TradePilotAI/) ---
+TradePilotAI/*.iml
+TradePilotAI/.gradle
+TradePilotAI/local.properties
+TradePilotAI/.idea/
+TradePilotAI/build
+TradePilotAI/**/build
+TradePilotAI/captures
+TradePilotAI/.externalNativeBuild
+TradePilotAI/.cxx
+TradePilotAI/*.apk
+TradePilotAI/*.aab
+TradePilotAI/keystore.properties
+TradePilotAI/*.jks
+TradePilotAI/*.keystore
+
+# --- Cloudflare Worker (cloudflare-worker/) ---
+cloudflare-worker/node_modules
+cloudflare-worker/.wrangler
+cloudflare-worker/scripts/worker-bundle.mjs
+cloudflare-worker/dist
+
+# --- Umum ---
+.DS_Store
+*.log
+.env
+.env.local
