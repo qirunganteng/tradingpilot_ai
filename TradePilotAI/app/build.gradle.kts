@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -10,7 +12,7 @@ plugins {
 // di .gitignore) atau dari environment variable (dipakai di GitHub Actions
 // lewat GitHub Secrets). Kalau tidak diisi, build release akan gagal
 // dengan pesan jelas alih-alih diam-diam pakai signing debug.
-val keystoreProperties = java.util.Properties()
+val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())
