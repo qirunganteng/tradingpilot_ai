@@ -3,7 +3,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.compose.compiler) // <-- TAMBAHKAN INI
+    alias(libs.plugins.kotlin.compose) // <-- TAMBAHKAN INI
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
