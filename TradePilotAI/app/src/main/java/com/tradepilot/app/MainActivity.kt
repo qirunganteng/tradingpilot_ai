@@ -3,11 +3,11 @@ package com.tradepilot.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -19,11 +19,6 @@ import com.tradepilot.app.security.RootWarningGate
 import com.tradepilot.core.ui.theme.TradePilotTheme
 import dagger.hilt.android.AndroidEntryPoint
 
-/**
- * Single Activity host. Semua navigasi (Browser, AI Analysis, Journal,
- * Statistic, Notification, Money Management, Settings) terjadi lewat
- * TradePilotNavHost (Compose Navigation), bukan Activity terpisah.
- */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,10 +28,11 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     RootWarningGate {
                         Column(modifier = Modifier.fillMaxSize()) {
-                            TradePilotNavHost(
-                                navController = androidx.navigation.compose.rememberNavController(),
-                                modifier = Modifier.weight(1f)
-                            )
+                            Box(modifier = Modifier.weight(1f)) {
+                                TradePilotNavHost(
+                                    navController = androidx.navigation.compose.rememberNavController()
+                                )
+                            }
                             StatusBarPlaceholder()
                         }
                     }

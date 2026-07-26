@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Language
@@ -21,10 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
-/**
- * Sidebar ikon vertikal di kiri layar — metafora "Activity Bar" VS Code.
- * Persistent di seluruh screen (Blueprint bagian 7: Navigation Diagram).
- */
 @Composable
 fun ActivityBar(
     currentRoute: String,
@@ -59,4 +56,6 @@ private fun iconFor(dest: TradePilotDestination): ImageVector = when (dest) {
     TradePilotDestination.Statistic -> Icons.Default.BarChart
     TradePilotDestination.Notification -> Icons.Default.Notifications
     TradePilotDestination.Settings -> Icons.Default.Settings
+    TradePilotDestination.AddTrade -> Icons.Default.Add
+    else -> Icons.Default.Settings
 }

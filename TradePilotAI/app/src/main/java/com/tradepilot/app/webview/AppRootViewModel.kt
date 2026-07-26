@@ -9,11 +9,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * Menjembatani BrowserScreen (WebView) -> capture -> AnalysisScreen,
- * dan mendaftarkan WebView aktif ke CurrentWebViewHolder untuk dipakai
- * AI Copilot (feature-notification) lewat AppChartSnapshotProvider.
- */
 @HiltViewModel
 class AppRootViewModel @Inject constructor(
     private val screenCapture: ScreenCapture,
@@ -28,7 +23,9 @@ class AppRootViewModel @Inject constructor(
     fun onAnalyzeRequested(webView: WebView) {
         viewModelScope.launch {
             val jpeg = screenCapture.captureCompressed(webView)
-            pendingAnalysisHolder.submit(jpeg)
+            jpeg?.let {
+                pendingAnalysisHolder.submit(it)
+            }
         }
     }
 }
