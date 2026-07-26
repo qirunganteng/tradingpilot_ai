@@ -2,6 +2,7 @@ package com.tradepilot.app.navigation
 
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -46,7 +47,7 @@ fun TradePilotNavHost(
         NavHost(
             navController = navController,
             startDestination = TradePilotDestination.Browser.route,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.weight(1f).fillMaxHeight()
         ) {
             composable(TradePilotDestination.Browser.route) {
                 BrowserScreen(
