@@ -94,6 +94,7 @@ object WorkerModule {
 
     @Provides
     @Singleton
+    @WorkerRetrofit
     fun provideWorkerApiService(@WorkerRetrofit client: OkHttpClient, moshi: Moshi): WorkerApiService {
         return Retrofit.Builder()
             .baseUrl(PLACEHOLDER_BASE_URL)
