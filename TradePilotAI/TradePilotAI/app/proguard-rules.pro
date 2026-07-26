@@ -1,2 +1,0 @@
--keepclassmembers class com.tradepilot.domain.model.** { *; }
--keep class com.tradepilot.core.database.entity.** { *; }

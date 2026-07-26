@@ -1,1 +1,0 @@
-# Optimasi Performa — TradePilot AI

@@ -21,6 +21,7 @@ local.properties
 *.keystore
 keystore.properties
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 .idea/
 *.iml
 captures/
