@@ -24,6 +24,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    @ApiKeyInterceptorQualifier
     fun provideApiKeyInterceptor(secureKeyStore: SecureKeyStore): Interceptor =
         Interceptor { chain ->
             val apiKey = secureKeyStore.getGeminiApiKey()
@@ -39,7 +40,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(apiKeyInterceptor: Interceptor): OkHttpClient {
+    fun provideOkHttpClient(@ApiKeyInterceptorQualifier apiKeyInterceptor: Interceptor): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC // jangan BODY di release: bisa bocorkan API key
         }
