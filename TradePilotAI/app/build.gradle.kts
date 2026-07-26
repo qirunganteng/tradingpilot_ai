@@ -83,6 +83,9 @@ android {
 }
 
 dependencies {
+    implementation(project(":data:data-user"))
+    implementation(project(":data:data-trading"))
+    implementation(project(":data:data-ai"))
     // core
     implementation(project(":core:core-common"))
     implementation(project(":core:core-ui"))
