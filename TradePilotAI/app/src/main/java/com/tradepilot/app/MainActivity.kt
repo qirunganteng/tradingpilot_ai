@@ -3,7 +3,6 @@ package com.tradepilot.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,11 +28,10 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     RootWarningGate {
                         Column(modifier = Modifier.fillMaxSize()) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                TradePilotNavHost(
-                                    navController = androidx.navigation.compose.rememberNavController()
-                                )
-                            }
+                            TradePilotNavHost(
+                                navController = androidx.navigation.compose.rememberNavController(),
+                                modifier = Modifier.weight(1f)
+                            )
                             StatusBarPlaceholder()
                         }
                     }
