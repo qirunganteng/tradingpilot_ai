@@ -95,6 +95,16 @@ dependencies {
     // domain
     implementation(project(":domain"))
 
+    // data (WAJIB ada di sini walau app tidak memanggil langsung -- Hilt
+    // butuh semua @Module @InstallIn(SingletonComponent::class) dari modul
+    // ini ada di classpath :app supaya bisa generate Dagger component final.
+    // Tanpa ini: "[Dagger/MissingBinding] ... cannot be provided without
+    // an @Provides-annotated method" untuk SettingsRepository/AIRepository/
+    // TradeJournalRepository.)
+    implementation(project(":data:data-user"))
+    implementation(project(":data:data-trading"))
+    implementation(project(":data:data-ai"))
+
     // feature (app hanya bergantung ke feature, bukan sebaliknya)
     implementation(project(":feature:feature-browser"))
     implementation(project(":feature:feature-ai"))

@@ -25,6 +25,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Activity darurat untuk diagnostik crash (lihat TradePilotApplication.installCrashHandler).
+             exported="false" karena hanya dipicu dari dalam app sendiri, aman. -->
+        <activity
+            android:name=".crash.CrashActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TradePilotAI" />
+
     </application>
 
 </manifest>
