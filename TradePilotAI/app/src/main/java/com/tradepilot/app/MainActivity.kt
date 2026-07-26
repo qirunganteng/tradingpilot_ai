@@ -3,12 +3,11 @@ package com.tradepilot.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,12 +26,19 @@ class MainActivity : ComponentActivity() {
             TradePilotTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     RootWarningGate {
-                        Column(modifier = Modifier.fillMaxSize()) {
+                        // Scaffold otomatis menghitung ukuran konten di antara
+                        // bottomBar tanpa perlu Modifier.weight() manual sama
+                        // sekali -- menghindari isu resolusi weight() yang
+                        // pernah bikin gagal compile di beberapa kombinasi
+                        // versi Compose/Kotlin.
+                        Scaffold(
+                            bottomBar = { StatusBarPlaceholder() }
+                        ) { innerPadding ->
                             TradePilotNavHost(
-                                navController = androidx.navigation.compose.rememberNavController(),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
                             )
-                            StatusBarPlaceholder()
                         }
                     }
                 }
