@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme untuk Material 3 / Compose -->
+    <style name="Theme.TradePilotAI" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Opsional: Set status bar transparan / sesuaikan warna dasar -->
+    </style>
+</resources>
