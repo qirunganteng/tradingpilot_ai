@@ -23,7 +23,9 @@ class AppRootViewModel @Inject constructor(
     fun onAnalyzeRequested(webView: WebView) {
         viewModelScope.launch {
             val jpeg = screenCapture.captureCompressed(webView)
-            pendingAnalysisHolder.submit(jpeg)
+            if (jpeg != null) {
+                pendingAnalysisHolder.submit(jpeg)
+            }
         }
     }
 }

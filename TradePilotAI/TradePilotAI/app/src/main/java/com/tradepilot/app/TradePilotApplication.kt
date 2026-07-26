@@ -1,6 +1,7 @@
 package com.tradepilot.app
 
 import android.app.Application
+import com.tradepilot.app.BuildConfig
 import com.tradepilot.core.logging.AppLogger
 import dagger.hilt.android.HiltAndroidApp
 

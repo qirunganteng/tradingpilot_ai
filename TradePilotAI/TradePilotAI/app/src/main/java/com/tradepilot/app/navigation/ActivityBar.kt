@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Language
@@ -55,4 +56,5 @@ private fun iconFor(dest: TradePilotDestination): ImageVector = when (dest) {
     TradePilotDestination.Statistic -> Icons.Default.BarChart
     TradePilotDestination.Notification -> Icons.Default.Notifications
     TradePilotDestination.Settings -> Icons.Default.Settings
+    TradePilotDestination.AddTrade -> Icons.Default.Add
 }
