@@ -1,0 +1,6 @@
+{
+  "name": "TradePilot AI",
+  "description": "Smart trading browser with AI Copilot for Exness using ICT/SMC analysis",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

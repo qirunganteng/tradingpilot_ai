@@ -45,8 +45,6 @@ async function handleAnalyze(request: Request, env: Env): Promise<Response> {
 
     let imageKey: string | null = null;
     if (body.storeImage !== false) {
-      // Simpan ke R2 tanpa memblokir response terlalu lama jika gagal —
-      // kegagalan arsip gambar tidak boleh menggagalkan hasil analisa.
       try {
         imageKey = await storeChartImage(env, deviceId, base64ToArrayBuffer(body.imageBase64), mimeType);
       } catch (e) {
@@ -76,16 +74,12 @@ async function handleAnalyze(request: Request, env: Env): Promise<Response> {
     try {
       await insertAnalysis(env, deviceId, result, latencyMs);
     } catch (e) {
-      // Analisa tetap dikembalikan ke user walau gagal dicatat ke D1 —
-      // audit log bersifat "best effort", bukan syarat mutlak fitur jalan.
       console.error("Gagal insert D1:", e);
     }
 
     try {
       await logRequest(env, deviceId, "/api/v1/analyze", 200, null);
     } catch (e) {
-      // Sama seperti insertAnalysis: kegagalan mencatat log TIDAK BOLEH
-      // menggagalkan response sukses yang sudah didapat user.
       console.error("Gagal insert request_log:", e);
     }
 
@@ -115,7 +109,6 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // Health check tidak butuh auth — buat monitoring uptime gampang.
     if (url.pathname === "/api/v1/health") {
       return json({ status: "ok", environment: env.ENVIRONMENT, time: Date.now() });
     }

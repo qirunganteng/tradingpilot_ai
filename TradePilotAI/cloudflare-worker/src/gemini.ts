@@ -25,11 +25,6 @@ export interface GeminiAnalysisOutcome {
   reasoning: string;
 }
 
-/**
- * Panggil Gemini generateContent (multimodal: gambar + prompt), lalu parse
- * teks JSON hasilnya. API key HANYA ada di sini (Worker secret), TIDAK PERNAH
- * dikirim ke/tersimpan di app Android — ini keuntungan utama pola AI Gateway.
- */
 export async function analyzeChartWithGemini(
   env: Env,
   imageBase64: string,

@@ -1,0 +1,18 @@
+*.iml
+.gradle
+/local.properties
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.apk
+*.aab
+/app/release
+
+# Signing (JANGAN PERNAH commit file asli ini)
+keystore.properties
+*.jks
+*.keystore

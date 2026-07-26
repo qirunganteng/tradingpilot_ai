@@ -1,27 +1,20 @@
 name = "tradepilot-ai-gateway"
 main = "src/index.ts"
-compatibility_date = "2026-07-01"
+compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
-# --- D1: audit log hasil analisa AI (BUKAN pengganti Trading Journal lokal) ---
 [[d1_databases]]
 binding = "DB"
 database_name = "tradepilot_db"
-database_id = "5617dfd6-8b08-42bf-8d78-50d58bf2f1f5"   # isi setelah `wrangler d1 create tradepilot_db`
+database_id = "5617dfd6-8b08-42bf-8d78-50d58bf2f1f5"
 
-# --- R2: arsip screenshot chart yang dianalisa ---
 [[r2_buckets]]
 binding = "CHART_BUCKET"
 bucket_name = "tradepilot-charts"
 
-# --- Rate limit sederhana per user (opsional, lihat src/rateLimit.ts) ---
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id = "144db6fc267b4f93a9b805417b42e253"            # isi setelah `wrangler kv namespace create RATE_LIMIT_KV`
-
-# Secrets (JANGAN ditaruh di sini — isi lewat `wrangler secret put`):
-#   GEMINI_API_KEY   -> API key Gemini kamu, disimpan di server, TIDAK PERNAH di client
-#   GATEWAY_AUTH_TOKEN -> token statis sederhana supaya hanya app TradePilot yang bisa panggil Worker ini
+id = "144db6fc267b4f93a9b805417b42e253"
 
 [vars]
 GEMINI_MODEL = "gemini-2.5-flash"

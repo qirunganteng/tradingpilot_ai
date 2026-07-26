@@ -1,1 +1,4 @@
 scripts/worker-bundle.mjs
+node_modules/
+.wrangler/
+dist/

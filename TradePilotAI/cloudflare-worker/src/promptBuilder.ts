@@ -3,10 +3,6 @@ const DEFAULT_METHODS = [
   "BOS", "CHOCH", "Session", "PDH", "PDL", "Trend", "Momentum"
 ];
 
-/**
- * Sama persis dengan PromptBuilder di sisi Android (data-ai/provider/PromptBuilder.kt)
- * supaya perilaku identik terlepas dipanggil lewat Worker atau (fallback) langsung.
- */
 export function buildChartAnalysisPrompt(methods: string[] = []): string {
   const methodList = methods.length > 0 ? methods : DEFAULT_METHODS;
 

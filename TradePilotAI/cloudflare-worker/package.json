@@ -2,7 +2,7 @@
   "name": "tradepilot-ai-gateway",
   "version": "0.1.0",
   "private": true,
-  "description": "Cloudflare Worker AI Gateway untuk TradePilot AI \u2014 proxy Gemini + D1 (audit log) + R2 (arsip screenshot chart)",
+  "description": "Cloudflare Worker AI Gateway untuk TradePilot AI — proxy Gemini + D1 (audit log) + R2 (arsip screenshot chart)",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

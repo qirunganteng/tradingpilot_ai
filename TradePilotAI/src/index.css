@@ -1,0 +1,242 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg: #E4E3E0;
+    --ink: #141414;
+    --line: #141414;
+    --red: #D93025;
+    --green: #188038;
+    --yellow: #B58105;
+    --f-mono: 'Courier New', Courier, monospace;
+    --f-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --f-serif: 'Georgia', serif;
+  }
+
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg);
+    font-family: var(--f-sans);
+    color: var(--ink);
+    overflow: hidden;
+  }
+}
+
+/* Custom High Density UI Utilities */
+.hd-container {
+  display: grid;
+  grid-template-rows: 48px 1fr 180px;
+  height: 100vh;
+  width: 100vw;
+  border: 2px solid var(--line);
+  box-sizing: border-box;
+  background-color: var(--bg);
+}
+
+.hd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.hd-branch-pill {
+  background: var(--ink);
+  color: var(--bg);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--f-mono);
+  border-radius: 2px;
+}
+
+.hd-main-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .hd-main-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+    overflow-y: auto;
+  }
+  .hd-container {
+    grid-template-rows: auto 1fr auto;
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+}
+
+.hd-border-r {
+  border-right: 1px solid var(--line);
+}
+
+.hd-border-b {
+  border-bottom: 1px solid var(--line);
+}
+
+.hd-border-l {
+  border-left: 1px solid var(--line);
+}
+
+.hd-sidebar-header {
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 11px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(0,0,0,0.03);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hd-terminal-section {
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.hd-terminal-header {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  background: #f8f8f7;
+}
+
+.hd-terminal-body {
+  flex-grow: 1;
+  padding: 1rem;
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #222;
+  overflow-y: auto;
+  background: #ffffff;
+}
+
+.hd-error-text {
+  color: var(--red);
+  font-weight: bold;
+}
+
+.hd-success-text {
+  color: var(--green);
+  font-weight: bold;
+}
+
+.hd-warning-text {
+  color: var(--yellow);
+  font-weight: bold;
+}
+
+.hd-fix-card {
+  margin: 0.75rem;
+  padding: 0.85rem;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  box-shadow: 3px 3px 0 var(--line);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.hd-fix-card:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--line);
+}
+
+.hd-fix-title {
+  font-weight: 700;
+  font-size: 11px;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hd-fix-desc {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin-bottom: 0.75rem;
+  color: #333;
+}
+
+.hd-btn-fix {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--ink);
+  color: var(--bg);
+  border: 1px solid var(--line);
+  font-weight: 700;
+  font-size: 11px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+
+.hd-btn-fix:hover {
+  opacity: 0.9;
+}
+
+.hd-btn-secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.hd-btn-secondary:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+.hd-status-bar {
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.hd-metric-box {
+  border: 1px solid var(--line);
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: #ffffff;
+}
+
+.hd-metric-val {
+  font-size: 20px;
+  font-weight: 400;
+  font-family: var(--f-mono);
+  line-height: 1.1;
+}
+
+.hd-metric-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.75;
+  margin-top: 2px;
+}

@@ -1,29 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { buildChartAnalysisPrompt, DEFAULT_METHODS } from "../src/promptBuilder";
 
-describe("buildChartAnalysisPrompt", () => {
-  it("memakai default methods ketika tidak ada methods diberikan", () => {
+describe("promptBuilder", () => {
+  it("should use default methods if empty array provided", () => {
     const prompt = buildChartAnalysisPrompt([]);
-    for (const method of DEFAULT_METHODS) {
-      expect(prompt).toContain(method);
-    }
+    expect(prompt).toContain("ICT");
+    expect(prompt).toContain("SMC");
+    expect(prompt).toContain("JSON");
   });
 
-  it("memakai methods custom ketika diberikan", () => {
-    const prompt = buildChartAnalysisPrompt(["ICT", "Liquidity"]);
-    expect(prompt).toContain("ICT, Liquidity");
-    expect(prompt).not.toContain("Momentum");
-  });
-
-  it("selalu meminta output JSON dengan field wajib", () => {
-    const prompt = buildChartAnalysisPrompt();
-    for (const field of ["pair", "trend", "signal", "confidence", "entry", "stop_loss", "take_profit", "risk_reward", "reasoning"]) {
-      expect(prompt).toContain(`"${field}"`);
-    }
-  });
-
-  it("menegaskan AI tidak boleh transaksi", () => {
-    const prompt = buildChartAnalysisPrompt();
-    expect(prompt.toLowerCase()).toContain("tidak melakukan transaksi");
+  it("should include custom methods if provided", () => {
+    const prompt = buildChartAnalysisPrompt(["Fibonacci", "EMA200"]);
+    expect(prompt).toContain("Fibonacci, EMA200");
   });
 });

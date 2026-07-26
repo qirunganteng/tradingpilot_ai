@@ -1,18 +1,34 @@
-*.iml
-.gradle
-/local.properties
-.idea/
+node_modules/
+build/
+dist/
+coverage/
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+*.log
+.env*
+!.env.example
+
+# Zip & Large archives
+*.zip
+*.tar.gz
+*.7z
+
+# Android & Gradle artifacts
+.gradle/
 local.properties
 *.apk
 *.aab
-/app/release
-
-# Signing (JANGAN PERNAH commit file asli ini)
-keystore.properties
 *.jks
 *.keystore
+keystore.properties
+*.jar
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Cloudflare Worker artifacts
+cloudflare-worker/.wrangler/
+cloudflare-worker/dist/
+cloudflare-worker/scripts/worker-bundle.mjs
+

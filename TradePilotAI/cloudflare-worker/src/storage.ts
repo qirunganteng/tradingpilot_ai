@@ -1,9 +1,5 @@
 import type { Env } from "./types";
 
-/**
- * R2: arsip screenshot chart yang dianalisa. Key dibuat dari deviceId +
- * timestamp + random suffix supaya tidak collide antar user/device.
- */
 export async function storeChartImage(
   env: Env,
   deviceId: string,
