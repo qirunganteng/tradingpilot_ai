@@ -1,6 +1,8 @@
 package com.tradepilot.data.ai
 
 import com.squareup.moshi.Moshi
+import com.tradepilot.core.network.BaseUrlInterceptorQualifier
+import com.tradepilot.core.network.GatewayTokenInterceptorQualifier
 import com.tradepilot.core.security.SecureKeyStore
 import com.tradepilot.data.ai.remote.WorkerApiService
 import dagger.Module
@@ -37,6 +39,7 @@ object WorkerModule {
      */
     @Provides
     @Singleton
+    @BaseUrlInterceptorQualifier
     fun provideBaseUrlInterceptor(secureKeyStore: SecureKeyStore): Interceptor = Interceptor { chain ->
         val configuredBaseUrl = secureKeyStore.getWorkerBaseUrl()?.toHttpUrlOrNull()
         val original = chain.request()
@@ -57,6 +60,7 @@ object WorkerModule {
 
     @Provides
     @Singleton
+    @GatewayTokenInterceptorQualifier
     fun provideGatewayTokenInterceptor(secureKeyStore: SecureKeyStore): Interceptor = Interceptor { chain ->
         val token = secureKeyStore.getWorkerGatewayToken()
         val request = if (token != null) {
@@ -71,8 +75,8 @@ object WorkerModule {
     @Singleton
     @WorkerRetrofit
     fun provideWorkerOkHttpClient(
-        baseUrlInterceptor: Interceptor,
-        gatewayTokenInterceptor: Interceptor
+        @BaseUrlInterceptorQualifier baseUrlInterceptor: Interceptor,
+        @GatewayTokenInterceptorQualifier gatewayTokenInterceptor: Interceptor
     ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
         return OkHttpClient.Builder()
