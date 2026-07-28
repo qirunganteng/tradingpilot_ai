@@ -1,0 +1,35 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Zip & Large archives
+*.zip
+*.tar.gz
+*.7z
+
+# Android & Gradle artifacts
+.gradle/
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Cloudflare Worker artifacts
+cloudflare-worker/.wrangler/
+cloudflare-worker/dist/
+cloudflare-worker/scripts/worker-bundle.mjs
+

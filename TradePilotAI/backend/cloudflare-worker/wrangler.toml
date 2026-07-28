@@ -1,0 +1,21 @@
+name = "tradepilot-ai-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tradepilot_db"
+database_id = "5617dfd6-8b08-42bf-8d78-50d58bf2f1f5"
+
+[[r2_buckets]]
+binding = "CHART_BUCKET"
+bucket_name = "tradepilot-charts"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "144db6fc267b4f93a9b805417b42e253"
+
+[vars]
+GEMINI_MODEL = "gemini-2.5-flash"
+ENVIRONMENT = "development"
