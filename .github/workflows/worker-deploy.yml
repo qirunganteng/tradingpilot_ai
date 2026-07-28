@@ -1,63 +1,51 @@
 name: Cloudflare Worker - Test & Deploy
-
 on:
   push:
     branches: ["main"]
-    paths: ["TradePilotAI/cloudflare-worker/**"]
+    paths: ["TradePilotAI/backend/cloudflare-worker/**"]
   pull_request:
     branches: ["main"]
-    paths: ["TradePilotAI/cloudflare-worker/**"]
-
+    paths: ["TradePilotAI/backend/cloudflare-worker/**"]
 defaults:
   run:
-    working-directory: TradePilotAI/cloudflare-worker
-
+    working-directory: TradePilotAI/backend/cloudflare-worker
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: TradePilotAI/cloudflare-worker/package-lock.json
-
+          cache-dependency-path: TradePilotAI/backend/cloudflare-worker/package-lock.json
       - name: Install dependencies
         run: npm install
-
       - name: Typecheck
         run: npm run typecheck
-
       - name: Unit & integration test (Vitest)
         run: npm test
-
       - name: End-to-end test (Miniflare langsung)
         run: npm run test:e2e
-
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: TradePilotAI/cloudflare-worker/package-lock.json
-
+          cache-dependency-path: TradePilotAI/backend/cloudflare-worker/package-lock.json
       - name: Install dependencies
         run: npm install
-
       - name: Deploy ke Cloudflare
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: TradePilotAI/cloudflare-worker
+          workingDirectory: TradePilotAI/backend/cloudflare-worker
           command: deploy
