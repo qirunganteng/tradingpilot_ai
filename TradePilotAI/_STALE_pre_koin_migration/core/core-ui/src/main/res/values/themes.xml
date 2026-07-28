@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Gunakan android: parent bawaan SDK agar tidak butuh dependency ekstra -->
-    <style name="Theme.TradePilotAI" parent="android:Theme.Material.NoActionBar">
-    </style>
-</resources>
