@@ -2,6 +2,7 @@ package com.tradepilot.domain.repository
 
 import com.tradepilot.domain.model.AccountInfo
 import com.tradepilot.domain.model.AnalysisResult
+import com.tradepilot.domain.model.RiskRecommendation
 import com.tradepilot.domain.model.TradeEntry
 import kotlinx.coroutines.flow.Flow
 
