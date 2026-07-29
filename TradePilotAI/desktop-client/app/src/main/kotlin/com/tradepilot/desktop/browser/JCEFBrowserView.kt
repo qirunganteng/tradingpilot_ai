@@ -32,6 +32,10 @@ import com.tradepilot.domain.browser.EXNESS_WEBTRADING_URL
 @Composable
 fun JCEFBrowserView(
     modifier: Modifier = Modifier,
+    // Default halaman awal tetap Exness (aplikasi trading), TAPI ini cuma
+    // starting point -- engine di bawah tidak membatasi navigasi ke domain
+    // manapun sesudahnya (lihat catatan di JCEFBrowserEngine).
+    startUrl: String = EXNESS_WEBTRADING_URL,
     onEngineReady: (JCEFBrowserEngine) -> Unit = {}
 ) {
     var statusMessage by remember { mutableStateOf("Menyiapkan JCEF...") }
@@ -41,7 +45,7 @@ fun JCEFBrowserView(
     LaunchedEffect(Unit) {
         when (val result = JCEFBootstrap.initialize(onProgress = { statusMessage = it })) {
             is JCEFBootstrap.InitResult.Success -> {
-                val newEngine = JCEFBrowserEngine(result.client, EXNESS_WEBTRADING_URL)
+                val newEngine = JCEFBrowserEngine(result.client, startUrl)
                 engine = newEngine
                 onEngineReady(newEngine)
             }
