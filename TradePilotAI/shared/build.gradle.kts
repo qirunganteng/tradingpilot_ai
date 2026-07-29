@@ -11,7 +11,12 @@ plugins {
 kotlin {
     androidTarget {
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+            // Harus sama dengan android.compileOptions di bawah (Java 17),
+            // kalau tidak Gradle gagal dengan "Inconsistent JVM-target
+            // compatibility" antara compileDebugJavaWithJavac dan
+            // compileDebugKotlinAndroid. 17 dipilih supaya konsisten dengan
+            // seluruh modul lain di android-client (app, core-*, dst).
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
     jvm("desktop") {
@@ -41,6 +46,14 @@ android {
     namespace = "com.tradepilot.shared"
     compileSdk = libs.versions.compileSdk.get().toInt()
     defaultMinSdk(libs.versions.minSdk.get().toInt())
+
+    // Tanpa blok ini, AGP diam-diam pakai default Java 1.8 untuk
+    // compileDebugJavaWithJavac, bentrok dengan jvmTarget 17 di Kotlin
+    // compiler (androidTarget di atas) -> build gagal.
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }
 
 // Helper kecil biar baris `defaultMinSdk` di atas jelas maksudnya dan
