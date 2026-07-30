@@ -9,12 +9,12 @@ import java.util.Properties
  * TRADEPILOT_GATEWAY_URL/TOKEN cuma bisa diisi lewat environment variable
  * -- harus di-set ulang tiap buka terminal baru, tidak ramah non-developer).
  *
- * Disimpan sebagai file properties polos di folder home user, BUKAN dienkripsi
- * -- sama seperti keystore.properties di android-client (baca komentar di
- * app/build.gradle.kts sana), auth token di sini juga sensitif tapi untuk
- * fase ini disimpan plain text secara sadar. TODO Fase 9: enkripsi pakai
- * pendekatan yang sepadan dengan SecureKeyStore (Tink) di core-security,
- * tapi versi desktop (java.security / DPAPI Windows kalau mau serius).
+ * Disimpan sebagai file properties di folder home user, sama seperti
+ * keystore.properties di android-client (baca komentar di app/build.gradle.kts
+ * sana). Fase 9: token sekarang dienkripsi AES-256-GCM (DesktopCrypto.kt)
+ * sebelum ditulis ke file -- lihat catatan batasan di sana (bukan
+ * hardware-backed seperti Tink/Android Keystore, tapi jauh lebih baik dari
+ * plain text Fase 8). URL tidak dienkripsi (bukan data sensitif).
  *
  * Env var TRADEPILOT_GATEWAY_URL/TOKEN TETAP didukung dan PRIORITAS lebih
  * tinggi dari file ini -- berguna untuk CI/scripted run tanpa perlu isi
@@ -56,9 +56,10 @@ object DesktopSettingsStore {
         return try {
             val props = Properties()
             configFile.inputStream().use { props.load(it) }
+            val encryptedToken = props.getProperty(KEY_TOKEN, "")
             DesktopSettings(
                 gatewayUrl = props.getProperty(KEY_URL, ""),
-                gatewayToken = props.getProperty(KEY_TOKEN, "")
+                gatewayToken = DesktopCrypto.decrypt(encryptedToken) ?: ""
             )
         } catch (e: Exception) {
             // File korup/tidak bisa dibaca -- jangan crash aplikasi cuma
@@ -70,7 +71,7 @@ object DesktopSettingsStore {
     fun save(settings: DesktopSettings) {
         val props = Properties()
         props.setProperty(KEY_URL, settings.gatewayUrl)
-        props.setProperty(KEY_TOKEN, settings.gatewayToken)
+        props.setProperty(KEY_TOKEN, DesktopCrypto.encrypt(settings.gatewayToken))
         configFile.outputStream().use {
             props.store(it, "TradePilot AI desktop-client settings -- lihat DesktopSettingsStore.kt")
         }

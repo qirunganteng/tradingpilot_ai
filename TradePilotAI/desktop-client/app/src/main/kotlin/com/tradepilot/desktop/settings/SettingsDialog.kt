@@ -73,9 +73,9 @@ fun SettingsDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Sama dengan nilai GATEWAY_AUTH_TOKEN di Worker (lihat " +
-                        "backend/cloudflare-worker). Disimpan plain text di " +
-                        "~/.tradepilot/desktop-client.properties untuk fase ini " +
-                        "-- enkripsi menyusul (lihat catatan di DesktopSettingsStore.kt).",
+                        "backend/cloudflare-worker). Token dienkripsi (AES-256-GCM) " +
+                        "sebelum disimpan di ~/.tradepilot/desktop-client.properties " +
+                        "-- lihat DesktopCrypto.kt untuk batasan pendekatan ini.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
