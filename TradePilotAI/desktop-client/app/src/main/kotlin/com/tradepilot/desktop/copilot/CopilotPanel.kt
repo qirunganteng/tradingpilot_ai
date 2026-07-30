@@ -46,9 +46,12 @@ import kotlinx.coroutines.launch
  * diklaim di sini.
  */
 @Composable
-fun CopilotPanel(engine: JCEFBrowserEngine?, modifier: Modifier = Modifier) {
+fun CopilotPanel(
+    engine: JCEFBrowserEngine?,
+    gatewayConfig: GatewayConfig,
+    modifier: Modifier = Modifier
+) {
     val scope = rememberCoroutineScope()
-    val gatewayConfig = remember { readGatewayConfigFromEnv() }
     val gateway: RiskGatewayRepository = remember(gatewayConfig) { HttpRiskGatewayRepository(gatewayConfig) }
     val aiRepository: AIRepository = remember(gatewayConfig) { HttpAIRepository(gatewayConfig) }
     val localUseCase = remember { CalculateRiskUseCase() }
@@ -160,9 +163,9 @@ fun CopilotPanel(engine: JCEFBrowserEngine?, modifier: Modifier = Modifier) {
         if (!gatewayConfig.isConfigured) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "Gateway belum dikonfigurasi. Set env var TRADEPILOT_GATEWAY_URL " +
-                    "dan TRADEPILOT_GATEWAY_TOKEN, lalu jalankan ulang. Sementara itu " +
-                    "hasil lokal tetap tampil di bawah.",
+                "Gateway belum dikonfigurasi. Buka Settings (ikon gear di " +
+                    "ActivityBar) untuk isi URL & token. Sementara itu hasil " +
+                    "lokal tetap tampil di bawah.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color(0xFFFFB74D)
             )
@@ -344,14 +347,4 @@ private fun ResultCard(title: String, result: RiskRecommendation, accent: Color)
     }
 }
 
-/**
- * Baca konfigurasi gateway dari environment variable. TIDAK ADA default URL
- * yang di-hardcode di sini secara sengaja -- kalau belum di-set, panel tetap
- * jalan (hasil lokal saja) dan kasih pesan jelas alih-alih diam-diam gagal
- * atau nembak ke URL tebakan.
- */
-private fun readGatewayConfigFromEnv(): GatewayConfig {
-    val url = System.getenv("TRADEPILOT_GATEWAY_URL")?.trimEnd('/') ?: ""
-    val token = System.getenv("TRADEPILOT_GATEWAY_TOKEN") ?: ""
-    return GatewayConfig(baseUrl = url, authToken = token)
-}
+

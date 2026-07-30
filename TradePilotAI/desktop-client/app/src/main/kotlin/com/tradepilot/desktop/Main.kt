@@ -19,6 +19,9 @@ import com.tradepilot.desktop.browser.BrowserBar
 import com.tradepilot.desktop.browser.JCEFBrowserEngine
 import com.tradepilot.desktop.browser.JCEFBrowserView
 import com.tradepilot.desktop.copilot.CopilotPanel
+import com.tradepilot.desktop.settings.DesktopSettingsStore
+import com.tradepilot.desktop.settings.SettingsDialog
+import com.tradepilot.domain.config.GatewayConfig
 
 // KONSTITUSI: file ini (Platform Client) HANYA boleh berisi rendering UI,
 // window management, dan navigation. Business Logic (CalculateRiskUseCase
@@ -49,11 +52,17 @@ fun Workbench() {
     // Engine di-hoist ke sini (bukan cuma di dalam JCEFBrowserView) supaya
     // BrowserBar di atasnya bisa panggil goBack/goForward/loadUrl.
     var browserEngine by remember { mutableStateOf<JCEFBrowserEngine?>(null) }
+    // Fase 8: gateway config sekarang dari Settings panel (dulu cuma env
+    // var) -- di-hoist di sini supaya begitu disimpan di dialog, CopilotPanel
+    // langsung ikut update tanpa restart aplikasi.
+    var gatewayConfig by remember { mutableStateOf(DesktopSettingsStore.resolve()) }
+    var isSettingsOpen by remember { mutableStateOf(false) }
 
     Row(modifier = Modifier.fillMaxSize()) {
         ActivityBar(
             isCopilotVisible = isCopilotVisible,
-            onToggleCopilot = { isCopilotVisible = !isCopilotVisible }
+            onToggleCopilot = { isCopilotVisible = !isCopilotVisible },
+            onOpenSettings = { isSettingsOpen = true }
         )
         SideBar()
         Workspace(
@@ -63,15 +72,27 @@ fun Workbench() {
         )
         if (isCopilotVisible) {
             VerticalDivider(color = Color(0xFF3A3A3A))
-            CopilotPanel(engine = browserEngine)
+            CopilotPanel(engine = browserEngine, gatewayConfig = gatewayConfig)
         }
+    }
+
+    if (isSettingsOpen) {
+        SettingsDialog(
+            initial = DesktopSettingsStore.load(),
+            onDismiss = { isSettingsOpen = false },
+            onSaved = { saved ->
+                gatewayConfig = saved.toGatewayConfig()
+                isSettingsOpen = false
+            }
+        )
     }
 }
 
 @Composable
 private fun ActivityBar(
     isCopilotVisible: Boolean,
-    onToggleCopilot: () -> Unit
+    onToggleCopilot: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     Column(
         modifier = Modifier.width(56.dp).fillMaxHeight().background(Color(0xFF1E1E1E)),
@@ -97,7 +118,7 @@ private fun ActivityBar(
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            IconButton(onClick = {}) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
+            IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
             Spacer(Modifier.height(12.dp))
         }
     }
