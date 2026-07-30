@@ -4,7 +4,6 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
-    application
 }
 
 // KONSTITUSI: module ini (Platform Client) TIDAK BOLEH berisi Business
@@ -28,10 +27,6 @@ dependencies {
 
 kotlin {
     jvmToolchain(11)
-}
-
-application {
-    mainClass.set("com.tradepilot.desktop.MainKt")
 }
 
 compose.desktop {
