@@ -1,0 +1,63 @@
+name: Desktop CI - Build Windows (Compose Desktop)
+on:
+  push:
+    branches: ["main"]
+    paths: ["TradePilotAI/desktop-client/**", "TradePilotAI/shared/**"]
+  workflow_dispatch: {}
+defaults:
+  run:
+    working-directory: TradePilotAI/desktop-client
+permissions:
+  contents: write
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Portable folder (bukan installer/MSI) SENGAJA dipilih di atas
+      # packageMsi -- MSI butuh WiX Toolset di runner & lebih rawan gagal
+      # di CI yang belum pernah dites. createDistributable menghasilkan
+      # folder dengan JRE terbundel + TradePilot AI.exe -- tinggal extract
+      # zip & double-click, tanpa wizard install, tanpa perlu Java
+      # terinstall di PC user.
+      - name: Build distributable (Windows, portable)
+        run: ./gradlew.bat :app:createDistributable
+
+      - name: Zip distributable
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "app/build/compose/binaries/main/app/*" -DestinationPath "TradePilotAI-Desktop-Windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TradePilotAI-Desktop-Windows
+          path: TradePilotAI/desktop-client/TradePilotAI-Desktop-Windows.zip
+
+      - name: Publish ke Release "latest" (URL download tetap, auto ke-update)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest build (auto-updated tiap push ke main)"
+          body: |
+            Build otomatis dari commit ${{ github.sha }}. File di release ini SELALU
+            ditimpa versi terbaru -- bookmark link download-nya, tidak perlu buka
+            Actions/cari run baru tiap mau update.
+
+            Cara pakai TradePilotAI-Desktop-Windows.zip: extract, lalu jalankan
+            "TradePilot AI.exe" di dalamnya (JRE sudah terbundel, tidak perlu
+            install Java). First run bisa agak lama karena JCEF (browser engine)
+            download binary native-nya sendiri saat pertama kali jalan.
+          prerelease: true
+          files: TradePilotAI/desktop-client/TradePilotAI-Desktop-Windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

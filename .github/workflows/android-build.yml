@@ -9,6 +9,8 @@ on:
 defaults:
   run:
     working-directory: TradePilotAI/android-client
+permissions:
+  contents: write
 jobs:
   build-debug:
     runs-on: ubuntu-latest
@@ -40,6 +42,20 @@ jobs:
         with:
           name: app-debug
           path: TradePilotAI/android-client/app/build/outputs/apk/debug/*.apk
+      - name: Publish ke Release "latest" (URL download tetap, auto ke-update)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest build (auto-updated tiap push ke main)"
+          body: |
+            Build otomatis dari commit ${{ github.sha }}. File di release ini SELALU
+            ditimpa versi terbaru -- bookmark link download-nya, tidak perlu buka
+            Actions/cari run baru tiap mau update.
+          prerelease: true
+          files: TradePilotAI/android-client/app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build-release:
     needs: build-debug
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -92,6 +108,16 @@ jobs:
         with:
           name: app-release-signed
           path: TradePilotAI/android-client/app/build/outputs/apk/release/*.apk
+      - name: Publish APK release ke Release "latest"
+        if: steps.check_secrets.outputs.has_secrets == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest build (auto-updated tiap push ke main)"
+          prerelease: true
+          files: TradePilotAI/android-client/app/build/outputs/apk/release/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Lewati build release (secret belum diisi)
         if: steps.check_secrets.outputs.has_secrets == 'false'
         run: echo "RELEASE_STORE_FILE_BASE64 belum diisi di GitHub Secrets — lihat docs/DEPLOY.md Bagian C.1. Build release dilewati, hanya APK debug yang tersedia."
