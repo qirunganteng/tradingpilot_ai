@@ -41,7 +41,13 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "TradePilot AI"
-            packageVersion = "0.1.0"
+            // MAJOR HARUS > 0 -- format Dmg (macOS) mewajibkan ini walau kita
+            // build Windows, karena Compose Gradle plugin memvalidasi versi
+            // untuk SEMUA targetFormats yang terdaftar di atas, bukan cuma
+            // yang benar-benar di-build. "0.1.0" (MAJOR=0) gagal validasi
+            // itu meski formatnya "terlihat" benar (lihat error CI: "Illegal
+            // version for 'Dmg': '0.1.0' is not a valid version").
+            packageVersion = "1.0.0"
             description = "TradePilot AI — Trading Workspace (Desktop)"
         }
     }
