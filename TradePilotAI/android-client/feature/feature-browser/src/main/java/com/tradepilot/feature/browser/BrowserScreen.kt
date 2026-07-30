@@ -48,6 +48,7 @@ fun BrowserScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var browserEngine by remember { mutableStateOf<BrowserEngine?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var currentUrl by remember { mutableStateOf(com.tradepilot.domain.browser.EXNESS_WEBTRADING_URL) }
 
     Scaffold(
         modifier = modifier,
@@ -56,7 +57,9 @@ fun BrowserScreen(
                 onBack = { browserEngine?.goBack() },
                 onForward = { browserEngine?.goForward() },
                 onRefresh = { browserEngine?.reload() },
-                onToggleFullscreen = { viewModel.toggleFullscreen() }
+                onToggleFullscreen = { viewModel.toggleFullscreen() },
+                currentUrl = currentUrl,
+                onNavigate = { url -> browserEngine?.loadUrl(url) }
             )
         },
         floatingActionButton = {
@@ -76,7 +79,8 @@ fun BrowserScreen(
                         browserEngine = WebViewBrowserEngine(webView)
                         onWebViewReady(webView)
                     },
-                    onPageLoading = { isLoading = it }
+                    onPageLoading = { isLoading = it },
+                    onUrlChanged = { currentUrl = it }
                 )
             }
             if (isLoading) {
