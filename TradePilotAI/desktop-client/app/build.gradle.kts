@@ -36,6 +36,20 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "TradePilot AI"
+
+            // includeAllModules = true: sertakan SEMUA modul JDK di runtime
+            // yang dibundel, bukan cuma yang auto-terdeteksi lewat jdeps.
+            // Tanpa ini sempat crash saat run: "NoClassDefFoundError:
+            // java/net/http/HttpClient" -- HttpRiskGatewayRepository &
+            // HttpAIRepository (shared/desktopMain) pakai java.net.http,
+            // tapi deteksi modul otomatis compose.desktop rupanya tidak
+            // menangkap pemakaian lewat dependency :shared (beda dari kalau
+            // classnya dipakai langsung di app module). Trade-off: ukuran
+            // distributable lebih besar, tapi menghindari SELURUH kelas bug
+            // "modul JDK X hilang" ini ke depannya (java.prefs, javax.crypto,
+            // dst yang juga dipakai DesktopSettingsStore/DesktopCrypto).
+            includeAllModules = true
+
             // MAJOR HARUS > 0 -- format Dmg (macOS) mewajibkan ini walau kita
             // build Windows, karena Compose Gradle plugin memvalidasi versi
             // untuk SEMUA targetFormats yang terdaftar di atas, bukan cuma
