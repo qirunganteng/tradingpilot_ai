@@ -63,7 +63,7 @@ fun Workbench() {
         )
         if (isCopilotVisible) {
             VerticalDivider(color = Color(0xFF3A3A3A))
-            CopilotPanel()
+            CopilotPanel(engine = browserEngine)
         }
     }
 }
