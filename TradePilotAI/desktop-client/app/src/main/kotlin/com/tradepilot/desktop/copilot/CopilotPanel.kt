@@ -85,7 +85,6 @@ fun CopilotPanel(
 
     Column(
         modifier = modifier
-            .width(320.dp)
             .fillMaxHeight()
             .background(Color(0xFF1F1F1F))
             .padding(16.dp)

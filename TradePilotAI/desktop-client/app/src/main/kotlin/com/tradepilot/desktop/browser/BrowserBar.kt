@@ -8,33 +8,49 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
  * Toolbar navigasi ala browser sungguhan: Back / Forward / Reload + address
- * bar bebas ketik URL apa saja. INI bagian yang tadinya hilang -- engine JCEF
- * sudah generic sejak awal, tapi tanpa address bar user cuma bisa lihat
- * Exness (satu-satunya URL yang di-hardcode di startup) tanpa cara pindah
- * ke situs lain. Quick-links di bawah cuma shortcut, BUKAN whitelist --
- * kolom alamat menerima domain apa pun (youtube.com, github.com,
- * shopee.co.id, facebook.com, dst) persis seperti Chrome/Edge biasa.
+ * bar bebas ketik URL apa saja, + toggle Fullscreen (Fase 10).
+ *
+ * FIX bug yang dilaporkan user (versi sebelumnya):
+ * 1. "Teks URL ketutup" -- OutlinedTextField sebelumnya dipaksa .height(40.dp),
+ *    lebih kecil dari tinggi wajar Material3 OutlinedTextField (~56dp),
+ *    bikin teksnya ke-clip. Sekarang tinggi dibiarkan natural.
+ * 2. "Buka website selain shortcut tidak bisa" -- 2 penyebab digabung:
+ *    a) Tombol "Buka" sebelumnya DIGANTI oleh spinner loading (bukan
+ *       ditampilkan BERSAMA), jadi kalau isLoadingState nyangkut true,
+ *       tombolnya hilang & tidak ada cara submit URL lewat mouse.
+ *       Sekarang tombol Buka SELALU ada, spinner cuma indikator kecil
+ *       tambahan di sampingnya.
+ *    b) KeyboardActions(onDone=...) itu konsep ImeAction (mobile/IME),
+ *       belum tentu ke-trigger konsisten oleh tombol Enter FISIK di
+ *       desktop (AWT/Swing input, bukan IME sungguhan). Ditambah
+ *       Modifier.onPreviewKeyEvent yang tangkap Key.Enter langsung
+ *       sebagai jalur kedua yang lebih pasti di desktop.
  */
 @Composable
 fun BrowserBar(
     engine: JCEFBrowserEngine?,
+    isFullscreen: Boolean,
+    onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Teks di kolom alamat: default ikut addressState engine (hasil navigasi
-    // nyata), tapi begitu user mulai ngetik, field ini "lepas" dari engine
-    // sampai dia menekan Enter/Go -- supaya tidak "direbut kursor"-nya
-    // di tengah mengetik saat halaman lagi loading.
     var addressField by remember(engine) { mutableStateOf(engine?.addressState ?: "") }
     var isEditing by remember { mutableStateOf(false) }
 
@@ -71,17 +87,24 @@ fun BrowserBar(
                     isEditing = true
                     addressField = it
                 },
-                modifier = Modifier.weight(1f).height(40.dp),
+                // TIDAK ada .height() manual di sini -- itu penyebab bug
+                // "teks ketutup" sebelumnya (lihat catatan kelas).
+                modifier = Modifier
+                    .weight(1f)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.Enter || event.key == Key.NumPadEnter)
+                        ) {
+                            navigate(addressField)
+                            true
+                        } else {
+                            false
+                        }
+                    },
                 singleLine = true,
                 shape = RoundedCornerShape(20.dp),
                 textStyle = MaterialTheme.typography.bodyMedium,
                 placeholder = { Text("Ketik URL — mis. youtube.com, github.com, shopee.co.id...") },
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    imeAction = androidx.compose.ui.text.input.ImeAction.Done
-                ),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                    onDone = { navigate(addressField) }
-                ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFF1E1E1E),
                     unfocusedContainerColor = Color(0xFF1E1E1E)
@@ -91,9 +114,19 @@ fun BrowserBar(
             Spacer(Modifier.width(4.dp))
 
             if (engine?.isLoadingState == true) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            } else {
-                TextButton(onClick = { navigate(addressField) }) { Text("Buka") }
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(6.dp))
+            }
+            // SELALU tampil (dulu: diganti spinner saat loading, jadi kadang
+            // hilang & user tidak punya cara klik submit -- lihat catatan kelas).
+            TextButton(onClick = { navigate(addressField) }) { Text("Buka") }
+
+            IconButton(onClick = onToggleFullscreen) {
+                Icon(
+                    if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                    contentDescription = if (isFullscreen) "Keluar fullscreen" else "Fullscreen",
+                    tint = Color.White
+                )
             }
         }
 
