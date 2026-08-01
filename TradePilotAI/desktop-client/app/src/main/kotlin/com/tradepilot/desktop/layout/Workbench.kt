@@ -32,6 +32,8 @@ import com.tradepilot.desktop.fullscreen.FullscreenRevealHost
 import com.tradepilot.desktop.settings.DesktopSettingsStore
 import com.tradepilot.desktop.settings.SettingsDialog
 import com.tradepilot.desktop.theme.AppColors
+import com.tradepilot.desktop.updater.UpdateBanner
+import com.tradepilot.desktop.updater.UpdateManager
 import com.tradepilot.domain.browser.EXNESS_WEBTRADING_URL
 
 private const val MIN_PANEL_WIDTH_DP = 160f
@@ -79,6 +81,13 @@ fun Workbench(onRequestExit: () -> Unit) {
     val closedTabsStack = remember { mutableStateListOf<BrowserTab>() }
 
     LaunchedEffect(Unit) { rootFocusRequester.requestFocus() }
+
+    // Auto-updater (Level 2): cek update SEKALI saat app pertama dibuka --
+    // TIDAK ada polling berkala (keputusan produk). Kalau ada update,
+    // download berjalan otomatis di background (lihat UpdateManager.kt);
+    // hasilnya ditampilkan lewat UpdateBanner di bawah, restart tetap
+    // wajib klik konfirmasi user.
+    LaunchedEffect(Unit) { UpdateManager.checkAndDownload() }
 
     // Sinkronkan url/title tab aktif setiap kali navigasi terjadi, DAN catat
     // ke History (Prioritas 3) begitu URL berubah.
@@ -218,6 +227,12 @@ fun Workbench(onRequestExit: () -> Unit) {
             // baru child bisa proses sendiri kalau di sini return false).
             .onPreviewKeyEvent { handleBrowserShortcuts(it, shortcutActions) }
     ) {
+        if (!isWorkspaceFullscreen) {
+            Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                UpdateBanner()
+            }
+        }
+
         Row(modifier = Modifier.fillMaxSize()) {
             if (!isWorkspaceFullscreen) {
                 ActivityBar(

@@ -29,6 +29,56 @@ kotlin {
     jvmToolchain(17)
 }
 
+// --- Auto-updater (Level 2): generate BuildInfo.kt berisi commit SHA saat
+// build, supaya app tahu versinya sendiri saat runtime dan bisa
+// dibandingkan dengan version.json di GitHub Release "latest" (lihat
+// updater/UpdateChecker.kt). SHA diambil dari env GITHUB_SHA (otomatis ada
+// di CI) atau `git rev-parse HEAD` (build lokal) -- BUKAN semver manual,
+// supaya tidak perlu rajin bump versi tiap rilis (selaras dengan konvensi
+// tag "latest" yang selalu ditimpa di desktop-build.yml).
+val generateBuildInfo by tasks.registering {
+    val outputDir = layout.buildDirectory.dir("generated/source/buildInfo/kotlin")
+    outputs.dir(outputDir)
+
+    doLast {
+        val commitSha = System.getenv("GITHUB_SHA") ?: try {
+            val process = ProcessBuilder("git", "rev-parse", "HEAD")
+                .directory(rootProject.rootDir)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText().trim()
+            process.waitFor()
+            output.ifBlank { "dev-local" }
+        } catch (e: Exception) {
+            "dev-local"
+        }
+
+        val packageDir = outputDir.get().dir("com/tradepilot/desktop/updater").asFile
+        packageDir.mkdirs()
+        File(packageDir, "BuildInfo.kt").writeText(
+            """
+            |package com.tradepilot.desktop.updater
+            |
+            |// DIGENERATE OTOMATIS oleh Gradle task generateBuildInfo -- JANGAN diedit manual.
+            |// Lihat app/build.gradle.kts.
+            |object BuildInfo {
+            |    const val COMMIT_SHA: String = "$commitSha"
+            |}
+            |""".trimMargin()
+        )
+    }
+}
+
+sourceSets {
+    main {
+        kotlin.srcDir(layout.buildDirectory.dir("generated/source/buildInfo/kotlin"))
+    }
+}
+
+tasks.named("compileKotlin") {
+    dependsOn(generateBuildInfo)
+}
+
 compose.desktop {
     application {
         mainClass = "com.tradepilot.desktop.MainKt"

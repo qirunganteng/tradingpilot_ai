@@ -36,6 +36,23 @@ jobs:
         run: |
           Compress-Archive -Path "app/build/compose/binaries/main/app/*" -DestinationPath "TradePilotAI-Desktop-Windows.zip"
 
+      # Level 2 (auto-updater): manifest kecil yang dibaca app saat startup
+      # (lihat app/updater/UpdateChecker.kt) buat bandingkan commit SHA lokal
+      # (BuildInfo.kt, digenerate dari SHA yang sama persis lewat Gradle task
+      # generateBuildInfo) vs SHA terbaru di sini -- beda berarti ada update.
+      # File ini di-upload ke release "latest" yang sama & SELALU ditimpa,
+      # persis seperti zip-nya, jadi URL-nya juga tidak pernah berubah.
+      - name: Generate version manifest
+        shell: pwsh
+        run: |
+          $manifest = @{
+            commitSha   = "${{ github.sha }}"
+            downloadUrl = "https://github.com/${{ github.repository }}/releases/download/latest/TradePilotAI-Desktop-Windows.zip"
+            builtAt     = (Get-Date -AsUTC -Format o)
+            notes       = "Auto-update dari commit ${{ github.sha }}"
+          } | ConvertTo-Json
+          Set-Content -Path "version.json" -Value $manifest -Encoding utf8
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -58,6 +75,8 @@ jobs:
             install Java). First run bisa agak lama karena JCEF (browser engine)
             download binary native-nya sendiri saat pertama kali jalan.
           prerelease: true
-          files: TradePilotAI/desktop-client/TradePilotAI-Desktop-Windows.zip
+          files: |
+            TradePilotAI/desktop-client/TradePilotAI-Desktop-Windows.zip
+            TradePilotAI/desktop-client/version.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
