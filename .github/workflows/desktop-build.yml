@@ -34,7 +34,7 @@ jobs:
       - name: Zip distributable
         shell: pwsh
         run: |
-          Compress-Archive -Path "app/build/compose/binaries/main/app/*" -DestinationPath "TradePilotAI-Desktop-Windows.zip"
+          Compress-Archive -Path "app/build/compose/binaries/main/app/*/*" -DestinationPath "TradePilotAI-Desktop-Windows.zip"
 
       # Level 2 (auto-updater): manifest kecil yang dibaca app saat startup
       # (lihat app/updater/UpdateChecker.kt) buat bandingkan commit SHA lokal
