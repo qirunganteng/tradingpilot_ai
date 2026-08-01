@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.tradepilot.data.gateway.HttpAIRepository
 import com.tradepilot.data.gateway.HttpRiskGatewayRepository
 import com.tradepilot.desktop.browser.JCEFBrowserEngine
+import com.tradepilot.desktop.theme.Dimens
 import com.tradepilot.domain.config.GatewayConfig
 import com.tradepilot.domain.model.AnalysisResult
 import com.tradepilot.domain.model.RiskRecommendation
@@ -71,6 +72,16 @@ fun CopilotPanel(
     var analysisError by remember { mutableStateOf<String?>(null) }
     var isAnalyzing by remember { mutableStateOf(false) }
 
+    // Prioritas 7: "Jika Gateway gagal = tampilkan Snackbar" -- sebelumnya
+    // cuma Text merah inline di bawah tombol, sekarang benar-benar Snackbar
+    // Material3 sesuai spec, MUNCUL setiap kali gatewayError berubah jadi
+    // pesan baru (key = gatewayError, supaya klik ulang dgn error yg sama
+    // tetap memunculkan snackbar lagi, bukan cuma sekali).
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(gatewayError) {
+        gatewayError?.let { snackbarHostState.showSnackbar(message = it, withDismissAction = true) }
+    }
+
     fun parsedInputsOrNull(): RiskInputs? = try {
         RiskInputs(
             balance = balance.toDouble(),
@@ -83,187 +94,203 @@ fun CopilotPanel(
         null
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxHeight()
-            .background(Color(0xFF1F1F1F))
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color(0xFF4FC3F7))
-            Spacer(Modifier.width(8.dp))
-            Text("AI Copilot", style = MaterialTheme.typography.titleMedium)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Risk Calculator — terhubung ke AI Gateway",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
-        )
+    Box(modifier = modifier.fillMaxHeight()) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .background(Color(0xFF1F1F1F))
+                .padding(12.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("AI Copilot", style = MaterialTheme.typography.titleSmall)
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "Risk Calculator — terhubung ke AI Gateway",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
+            )
 
-        Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Dimens.AI_PANEL_VERTICAL_SPACING_DP.dp))
 
-        RiskField("Balance (USD)", balance) { balance = it }
-        RiskField("Risk %", riskPercent) { riskPercent = it }
-        RiskField("Entry", entryPrice) { entryPrice = it }
-        RiskField("Stop Loss", stopLossPrice) { stopLossPrice = it }
-        RiskField("Take Profit", takeProfitPrice) { takeProfitPrice = it }
+            RiskField("Balance (USD)", balance) { balance = it }
+            RiskField("Risk %", riskPercent) { riskPercent = it }
+            RiskField("Entry", entryPrice) { entryPrice = it }
+            RiskField("Stop Loss", stopLossPrice) { stopLossPrice = it }
+            RiskField("Take Profit", takeProfitPrice) { takeProfitPrice = it }
 
-        Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Dimens.AI_PANEL_VERTICAL_SPACING_DP.dp))
 
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isCalling,
-            onClick = {
-                val inputs = parsedInputsOrNull()
-                if (inputs == null) {
-                    gatewayError = "Input tidak valid — pastikan semua angka terisi benar."
-                    return@Button
-                }
+            Button(
+                modifier = Modifier.fillMaxWidth().height(Dimens.AI_PANEL_BUTTON_HEIGHT_DP.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                enabled = !isCalling,
+                onClick = {
+                    val inputs = parsedInputsOrNull()
+                    if (inputs == null) {
+                        gatewayError = "Input tidak valid — pastikan semua angka terisi benar."
+                        return@Button
+                    }
 
-                // Instant local preview (optimistic UI) -- lihat catatan kelas.
-                localResult = localUseCase.invoke(
-                    balance = inputs.balance,
-                    riskPercent = inputs.riskPercent,
-                    entryPrice = inputs.entry,
-                    stopLossPrice = inputs.sl,
-                    takeProfitPrice = inputs.tp
-                )
-                gatewayResult = null
-                gatewayError = null
-                isCalling = true
-
-                scope.launch {
-                    gateway.calculateRisk(
+                    // Instant local preview (optimistic UI) -- lihat catatan kelas.
+                    localResult = localUseCase.invoke(
                         balance = inputs.balance,
                         riskPercent = inputs.riskPercent,
                         entryPrice = inputs.entry,
                         stopLossPrice = inputs.sl,
-                        takeProfitPrice = inputs.tp,
-                        deviceId = "desktop-client"
-                    ).onSuccess {
-                        gatewayResult = it
-                        isCalling = false
-                    }.onFailure {
-                        gatewayError = it.message ?: "Gagal menghubungi gateway."
-                        isCalling = false
-                    }
-                }
-            }
-        ) {
-            if (isCalling) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(if (isCalling) "Menghitung via gateway..." else "Hitung Risk")
-        }
+                        takeProfitPrice = inputs.tp
+                    )
+                    gatewayResult = null
+                    gatewayError = null
+                    isCalling = true
 
-        if (!gatewayConfig.isConfigured) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Gateway belum dikonfigurasi. Buka Settings (ikon gear di " +
-                    "ActivityBar) untuk isi URL & token. Sementara itu hasil " +
-                    "lokal tetap tampil di bawah.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFFFB74D)
-            )
-        }
-
-        localResult?.let {
-            Spacer(Modifier.height(16.dp))
-            ResultCard(title = "Hasil lokal (instant preview)", result = it, accent = Color(0xFF81C784))
-        }
-
-        gatewayResult?.let {
-            Spacer(Modifier.height(12.dp))
-            ResultCard(title = "Hasil gateway (sumber kebenaran)", result = it, accent = Color(0xFF4FC3F7))
-        }
-
-        gatewayError?.let {
-            Spacer(Modifier.height(12.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
-
-        Spacer(Modifier.height(24.dp))
-        HorizontalDivider(color = Color(0xFF3A3A3A))
-        Spacer(Modifier.height(12.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.CandlestickChart, contentDescription = null, tint = Color(0xFFBA68C8), modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Analisa Chart (Fase 7)", style = MaterialTheme.typography.titleSmall)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Screenshot browser saat ini -> kirim ke AI Gateway (Gemini vision) " +
-                "-> hasil analisa ICT/SMC. Pastikan window ini terlihat penuh & " +
-                "tidak ketutupan window lain saat menekan tombol -- capture-nya " +
-                "screen area sungguhan, bukan render langsung dari browser.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
-        )
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isAnalyzing && engine != null,
-            onClick = {
-                val component = engine?.uiComponent ?: return@Button
-                analysisError = null
-                isAnalyzing = true
-
-                val captureResult = DesktopChartCapture.captureCompressed(component)
-                captureResult.onFailure {
-                    analysisError = it.message ?: "Gagal ambil screenshot."
-                    isAnalyzing = false
-                }
-
-                captureResult.onSuccess { imageBytes ->
                     scope.launch {
-                        aiRepository.analyzeChart(imageBytes, methods = emptyList())
-                            .onSuccess {
-                                analysisResult = it
-                                isAnalyzing = false
-                            }
-                            .onFailure {
-                                analysisError = it.message ?: "Gagal menghubungi AI Gateway."
-                                isAnalyzing = false
-                            }
+                        gateway.calculateRisk(
+                            balance = inputs.balance,
+                            riskPercent = inputs.riskPercent,
+                            entryPrice = inputs.entry,
+                            stopLossPrice = inputs.sl,
+                            takeProfitPrice = inputs.tp,
+                            deviceId = "desktop-client"
+                        ).onSuccess {
+                            gatewayResult = it
+                            isCalling = false
+                        }.onFailure {
+                            gatewayError = it.message ?: "Gagal menghubungi gateway."
+                            isCalling = false
+                        }
                     }
                 }
-            }
-        ) {
-            if (isAnalyzing) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(
-                when {
-                    engine == null -> "Browser belum siap"
-                    isAnalyzing -> "Menganalisa chart..."
-                    else -> "Analisa Chart Sekarang"
+            ) {
+                if (isCalling) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
+                    Spacer(Modifier.width(8.dp))
                 }
+                Text(if (isCalling) "Menghitung via gateway..." else "Hitung Risk", style = MaterialTheme.typography.labelMedium)
+            }
+
+            if (!gatewayConfig.isConfigured) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Gateway belum dikonfigurasi. Buka Settings (ikon gear di " +
+                        "ActivityBar) untuk isi URL & token. Sementara itu hasil " +
+                        "lokal tetap tampil di bawah.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFFFB74D)
+                )
+            }
+
+            localResult?.let {
+                Spacer(Modifier.height(10.dp))
+                ResultCard(title = "Hasil lokal (instant preview)", result = it, accent = Color(0xFF81C784))
+            }
+
+            gatewayResult?.let {
+                Spacer(Modifier.height(8.dp))
+                ResultCard(title = "Hasil gateway (sumber kebenaran)", result = it, accent = Color(0xFF4FC3F7))
+            }
+
+            // CATATAN: pesan error gateway sekarang HANYA lewat Snackbar
+            // (LaunchedEffect di atas) sesuai spec Prioritas 7 -- tidak lagi
+            // dobel ditampilkan sebagai Text inline di sini.
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = Color(0xFF3A3A3A))
+            Spacer(Modifier.height(10.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CandlestickChart, contentDescription = null, tint = Color(0xFFBA68C8), modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Analisa Chart (Fase 7)", style = MaterialTheme.typography.labelMedium)
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "Screenshot browser saat ini -> kirim ke AI Gateway (Gemini vision) " +
+                    "-> hasil analisa ICT/SMC. Pastikan window ini terlihat penuh & " +
+                    "tidak ketutupan window lain saat menekan tombol -- capture-nya " +
+                    "screen area sungguhan, bukan render langsung dari browser.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
+            )
+            Spacer(Modifier.height(6.dp))
+
+            Button(
+                modifier = Modifier.fillMaxWidth().height(Dimens.AI_PANEL_BUTTON_HEIGHT_DP.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                enabled = !isAnalyzing && engine != null,
+                onClick = {
+                    val component = engine?.uiComponent ?: return@Button
+                    analysisError = null
+                    isAnalyzing = true
+
+                    val captureResult = DesktopChartCapture.captureCompressed(component)
+                    captureResult.onFailure {
+                        analysisError = it.message ?: "Gagal ambil screenshot."
+                        isAnalyzing = false
+                    }
+
+                    captureResult.onSuccess { imageBytes ->
+                        scope.launch {
+                            aiRepository.analyzeChart(imageBytes, methods = emptyList())
+                                .onSuccess {
+                                    analysisResult = it
+                                    isAnalyzing = false
+                                }
+                                .onFailure {
+                                    analysisError = it.message ?: "Gagal menghubungi AI Gateway."
+                                    isAnalyzing = false
+                                }
+                        }
+                    }
+                }
+            ) {
+                if (isAnalyzing) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    when {
+                        engine == null -> "Browser belum siap"
+                        isAnalyzing -> "Menganalisa chart..."
+                        else -> "Analisa Chart Sekarang"
+                    },
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+
+            // Prioritas 8: "Jika gagal = buat Error Dialog" -- AlertDialog
+            // modal di bawah (bukan lagi Text inline), analysisError tetap
+            // jadi sumber datanya, cuma cara tampilnya yang berubah.
+
+            analysisResult?.let { result ->
+                Spacer(Modifier.height(10.dp))
+                AnalysisResultCard(result)
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Chat AI bebas teks (percakapan multi-turn) belum ada -- ini tombol " +
+                    "analisa terstruktur satu-arah dulu (screenshot -> hasil).",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
             )
         }
 
-        analysisError?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
+        SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
 
-        analysisResult?.let { result ->
-            Spacer(Modifier.height(12.dp))
-            AnalysisResultCard(result)
+        if (analysisError != null) {
+            AlertDialog(
+                onDismissRequest = { analysisError = null },
+                title = { Text("Analisa Chart Gagal") },
+                text = { Text(analysisError.orEmpty()) },
+                confirmButton = {
+                    TextButton(onClick = { analysisError = null }) { Text("Tutup") }
+                }
+            )
         }
-
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Chat AI bebas teks (percakapan multi-turn) belum ada -- ini tombol " +
-                "analisa terstruktur satu-arah dulu (screenshot -> hasil).",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
-        )
     }
 }
 
@@ -280,9 +307,13 @@ private fun RiskField(label: String, value: String, onChange: (String) -> Unit) 
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
-        label = { Text(label) },
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        textStyle = MaterialTheme.typography.bodySmall,
         singleLine = true,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .heightIn(min = Dimens.AI_PANEL_FIELD_HEIGHT_DP.dp)
     )
 }
 

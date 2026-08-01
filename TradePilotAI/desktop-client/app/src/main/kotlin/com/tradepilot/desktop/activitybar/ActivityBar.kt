@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
@@ -160,38 +161,48 @@ private fun ActivityBarIcon(
         label = "activityBarIconTint"
     )
 
-    Box(
-        modifier = Modifier
-            .width(Dimens.ACTIVITY_BAR_WIDTH_DP.dp)
-            .height(40.dp)
-            .hoverable(interactionSource)
-            .background(if (isHovered && !isActive) Color.White.copy(alpha = 0.06f) else Color.Transparent)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.CenterStart
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = {
+            PlainTooltip(containerColor = AppColors.SurfaceRaised, contentColor = AppColors.TextPrimary) {
+                Text(tooltip)
+            }
+        },
+        state = rememberTooltipState()
     ) {
-        // Garis indikator active state di sisi kiri, ala VSCode.
-        if (isActive) {
-            Box(
-                modifier = Modifier
-                    .width(2.dp)
-                    .height(24.dp)
-                    .background(AppColors.Accent)
-            )
-        }
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Icon(
-                icon,
-                contentDescription = tooltip,
-                tint = tint,
-                modifier = Modifier
-                    .size(22.dp)
-                    .scale(scale)
-                    .clip(RoundedCornerShape(4.dp))
-            )
+        Box(
+            modifier = Modifier
+                .width(Dimens.ACTIVITY_BAR_WIDTH_DP.dp)
+                .height(40.dp)
+                .hoverable(interactionSource)
+                .background(if (isHovered && !isActive) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            // Garis indikator active state di sisi kiri, ala VSCode.
+            if (isActive) {
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .height(24.dp)
+                        .background(AppColors.Accent)
+                )
+            }
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Icon(
+                    icon,
+                    contentDescription = tooltip,
+                    tint = tint,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .scale(scale)
+                        .clip(RoundedCornerShape(4.dp))
+                )
+            }
         }
     }
 }

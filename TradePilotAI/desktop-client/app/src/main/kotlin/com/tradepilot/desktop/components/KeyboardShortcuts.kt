@@ -31,7 +31,13 @@ class BrowserShortcutActions(
     val toggleBookmark: () -> Unit,
     val toggleFullscreen: () -> Unit,
     val goBack: () -> Unit,
-    val goForward: () -> Unit
+    val goForward: () -> Unit,
+    // Prioritas 9: "ESC keluar fullscreen" -- terpisah dari toggleFullscreen
+    // (F11) karena ESC HANYA boleh keluar dari fullscreen, tidak boleh
+    // masuk ke fullscreen kalau belum aktif (beda arah dari F11 yang toggle
+    // dua arah).
+    val isFullscreen: () -> Boolean,
+    val exitFullscreen: () -> Unit
 )
 
 /**
@@ -44,6 +50,7 @@ fun handleBrowserShortcuts(event: KeyEvent, actions: BrowserShortcutActions): Bo
     if (event.type != KeyEventType.KeyDown) return false
 
     return when {
+        event.key == Key.Escape && actions.isFullscreen() -> { actions.exitFullscreen(); true }
         event.isCtrlPressed && event.isShiftPressed && event.key == Key.T -> { actions.reopenClosedTab(); true }
         event.isCtrlPressed && event.key == Key.T -> { actions.newTab(); true }
         event.isCtrlPressed && event.key == Key.W -> { actions.closeTab(); true }

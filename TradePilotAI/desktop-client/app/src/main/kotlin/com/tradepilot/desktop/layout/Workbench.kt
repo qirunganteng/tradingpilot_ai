@@ -205,7 +205,9 @@ fun Workbench(onRequestExit: () -> Unit) {
             toggleBookmark = { BookmarkStore.toggle(currentUrl, currentTitle.ifBlank { currentUrl }) },
             toggleFullscreen = { isWorkspaceFullscreen = !isWorkspaceFullscreen },
             goBack = { browserEngine?.goBack() },
-            goForward = { browserEngine?.goForward() }
+            goForward = { browserEngine?.goForward() },
+            isFullscreen = { isWorkspaceFullscreen },
+            exitFullscreen = { isWorkspaceFullscreen = false }
         )
     }
 
