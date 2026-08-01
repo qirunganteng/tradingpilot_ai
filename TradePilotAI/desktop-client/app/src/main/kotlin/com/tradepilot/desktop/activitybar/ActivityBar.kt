@@ -22,7 +22,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
@@ -135,7 +135,7 @@ fun ActivityBar(
  * tint accent, ala VSCode), tooltip, dan click animation (scale-down
  * singkat saat ditekan).
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ActivityBarIcon(
     icon: ImageVector,
@@ -163,7 +163,7 @@ private fun ActivityBarIcon(
 
     TooltipBox(
         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-        tooltip = { PlainTooltip { Text(tooltip) } },
+        tooltip = { PlainTooltipBox { Text(tooltip) } },
         state = rememberTooltipState()
     ) {
         Box(

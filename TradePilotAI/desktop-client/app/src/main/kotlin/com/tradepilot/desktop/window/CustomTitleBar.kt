@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
-import androidx.compose.foundation.window.WindowDraggableArea
+import androidx.compose.ui.window.WindowDraggableArea
 import com.tradepilot.desktop.theme.AppColors
 import com.tradepilot.desktop.theme.Dimens
 import java.awt.Frame
