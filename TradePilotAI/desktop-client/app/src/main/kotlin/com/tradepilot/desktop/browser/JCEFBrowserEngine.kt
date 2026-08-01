@@ -291,11 +291,38 @@ class JCEFBrowserEngine(
          * pencarian aneh atau gagal load. Kalau sudah ada skema (http/https/
          * file/data/about, dst) dibiarkan apa adanya.
          */
+        /**
+         * Bug baru ("browser cuma bisa dipakai buat web yang sudah ada
+         * shortcut, selain itu nggak bisa"): root cause-nya fungsi ini dulu
+         * HANYA nambahin "https://" di depan input apa pun tanpa skema --
+         * jadi ngetik "google" jadi "https://google" (bukan domain valid) ->
+         * DNS_PROBE_FINISHED_NXDOMAIN. Shortcut (Exness/TradingView/dst)
+         * kebetulan selalu kirim URL LENGKAP jadi tidak kena masalah ini.
+         *
+         * Fix: tiru heuristik omnibox Chrome -- kalau teksnya TIDAK terlihat
+         * seperti alamat web (tidak ada titik, bukan localhost, bukan IP),
+         * anggap itu QUERY PENCARIAN dan arahkan ke Google Search, bukan
+         * dicoba jadi domain literal.
+         */
+        private fun looksLikeWebAddress(input: String): Boolean {
+            if (input.contains(" ")) return false
+            if (input.startsWith("localhost")) return true
+            if (Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?$").matches(input)) return true // IPv4 (+port opsional)
+            return input.contains(".") // domain.tld
+        }
+
         fun normalizeUrl(input: String): String {
             val trimmed = input.trim()
             val hasScheme = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(trimmed) ||
                 trimmed.startsWith("about:") || trimmed.startsWith("data:")
-            return if (hasScheme) trimmed else "https://$trimmed"
+            if (hasScheme) return trimmed
+
+            return if (looksLikeWebAddress(trimmed)) {
+                "https://$trimmed"
+            } else {
+                "https://www.google.com/search?q=" +
+                    java.net.URLEncoder.encode(trimmed, "UTF-8")
+            }
         }
     }
 }

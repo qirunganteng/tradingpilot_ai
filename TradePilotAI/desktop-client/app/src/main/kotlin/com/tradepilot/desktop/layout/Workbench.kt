@@ -11,7 +11,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.WindowPlacement
 import com.tradepilot.desktop.activitybar.ActivityBar
 import com.tradepilot.desktop.activitybar.SidePanel
 import com.tradepilot.desktop.browser.BrowserBar
@@ -35,6 +37,7 @@ import com.tradepilot.desktop.theme.AppColors
 import com.tradepilot.desktop.updater.UpdateBanner
 import com.tradepilot.desktop.updater.UpdateManager
 import com.tradepilot.desktop.window.LocalAppFullscreenState
+import com.tradepilot.desktop.window.LocalAppWindowState
 import com.tradepilot.domain.browser.EXNESS_WEBTRADING_URL
 
 private const val MIN_PANEL_WIDTH_DP = 160f
@@ -80,6 +83,10 @@ fun Workbench(
     val fullscreenState = LocalAppFullscreenState.current
     val isWorkspaceFullscreen = fullscreenState.isFullscreen
     fun setWorkspaceFullscreen(value: Boolean) { fullscreenState.isFullscreen = value }
+
+    // Bug #3 fix (resize edge bawah window tidak jalan): butuh windowState
+    // buat HorizontalResizeHandle ubah tinggi window secara manual.
+    val windowState = LocalAppWindowState.current
 
     var sideBarWidthDp by remember { mutableStateOf(240f) }
     var copilotWidthDp by remember { mutableStateOf(320f) }
@@ -257,84 +264,101 @@ fun Workbench(
             }
         }
 
-        Row(modifier = Modifier.fillMaxSize()) {
-            if (!isWorkspaceFullscreen) {
-                ActivityBar(
-                    activePanel = activePanel,
-                    onSelectPanel = { panel ->
-                        // Bug #9 fix: klik icon yang SUDAH aktif & sidebar
-                        // sedang terbuka -> tutup sidebar (toggle). Klik icon
-                        // lain, atau klik icon yang sama saat sidebar lagi
-                        // tertutup -> buka sidebar dengan panel itu.
-                        if (panel == activePanel && isSidebarVisible) {
-                            isSidebarVisible = false
-                        } else {
-                            activePanel = panel
-                            isSidebarVisible = true
-                        }
-                    },
-                    isCopilotVisible = isCopilotVisible,
-                    onToggleCopilot = { isCopilotVisible = !isCopilotVisible },
-                    onOpenSettings = { isSettingsOpen = true }
-                )
-                if (isSidebarVisible) {
-                    ExplorerPanel(
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (!isWorkspaceFullscreen) {
+                    ActivityBar(
                         activePanel = activePanel,
-                        tabs = tabs,
-                        activeTabId = activeTabId,
-                        pinnedSites = pinnedSites,
-                        onOpenUrl = { url -> newTab(url) },
-                        onSelectTab = ::selectTab,
-                        onRemoveBookmark = { BookmarkStore.remove(it) },
-                        modifier = Modifier.width(sideBarWidthDp.dp)
+                        onSelectPanel = { panel ->
+                            // Bug #9 fix: klik icon yang SUDAH aktif & sidebar
+                            // sedang terbuka -> tutup sidebar (toggle). Klik icon
+                            // lain, atau klik icon yang sama saat sidebar lagi
+                            // tertutup -> buka sidebar dengan panel itu.
+                            if (panel == activePanel && isSidebarVisible) {
+                                isSidebarVisible = false
+                            } else {
+                                activePanel = panel
+                                isSidebarVisible = true
+                            }
+                        },
+                        isCopilotVisible = isCopilotVisible,
+                        onToggleCopilot = { isCopilotVisible = !isCopilotVisible },
+                        onOpenSettings = { isSettingsOpen = true }
                     )
+                    if (isSidebarVisible) {
+                        ExplorerPanel(
+                            activePanel = activePanel,
+                            tabs = tabs,
+                            activeTabId = activeTabId,
+                            pinnedSites = pinnedSites,
+                            onOpenUrl = { url -> newTab(url) },
+                            onSelectTab = ::selectTab,
+                            onRemoveBookmark = { BookmarkStore.remove(it) },
+                            modifier = Modifier.width(sideBarWidthDp.dp)
+                        )
+                        VerticalResizeHandle(onDragDeltaPx = { deltaPx ->
+                            val deltaDp = with(density) { deltaPx.toDp().value }
+                            sideBarWidthDp = (sideBarWidthDp + deltaDp).coerceIn(MIN_PANEL_WIDTH_DP, MAX_SIDEBAR_WIDTH_DP)
+                        })
+                    }
+                }
+
+                Workspace(
+                    engine = browserEngine,
+                    onEngineReady = { browserEngine = it },
+                    isIncognito = isIncognito,
+                    tabs = tabs,
+                    activeTabId = activeTabId,
+                    onSelectTab = ::selectTab,
+                    onCloseTab = ::closeTab,
+                    onNewTab = { newTab() },
+                    onDuplicateTab = ::duplicateTab,
+                    onTogglePin = ::togglePinTab,
+                    onToggleMute = ::toggleMuteTab,
+                    onReloadTab = ::reloadTab,
+                    onReorder = ::reorderTabs,
+                    isFullscreen = isWorkspaceFullscreen,
+                    onToggleFullscreen = { setWorkspaceFullscreen(!isWorkspaceFullscreen) },
+                    isFindBarOpen = isFindBarOpen,
+                    onCloseFindBar = { isFindBarOpen = false; browserEngine?.stopFind() },
+                    isMenuOpen = isMenuOpen,
+                    onOpenMenu = { isMenuOpen = true },
+                    onDismissMenu = { isMenuOpen = false },
+                    onShowPanel = { panel -> activePanel = panel; isSidebarVisible = true },
+                    onOpenSettings = { isSettingsOpen = true },
+                    onRequestExit = onRequestExit,
+                    onOpenNewWindow = onOpenNewWindow,
+                    onOpenIncognitoWindow = onOpenIncognitoWindow,
+                    addressFocusRequester = addressFocusRequester,
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (isCopilotVisible && !isWorkspaceFullscreen) {
                     VerticalResizeHandle(onDragDeltaPx = { deltaPx ->
                         val deltaDp = with(density) { deltaPx.toDp().value }
-                        sideBarWidthDp = (sideBarWidthDp + deltaDp).coerceIn(MIN_PANEL_WIDTH_DP, MAX_SIDEBAR_WIDTH_DP)
+                        copilotWidthDp = (copilotWidthDp - deltaDp).coerceIn(MIN_PANEL_WIDTH_DP, MAX_COPILOT_WIDTH_DP)
                     })
+                    CopilotPanel(
+                        engine = browserEngine,
+                        gatewayConfig = gatewayConfig,
+                        modifier = Modifier.width(copilotWidthDp.dp)
+                    )
                 }
             }
 
-            Workspace(
-                engine = browserEngine,
-                onEngineReady = { browserEngine = it },
-                isIncognito = isIncognito,
-                tabs = tabs,
-                activeTabId = activeTabId,
-                onSelectTab = ::selectTab,
-                onCloseTab = ::closeTab,
-                onNewTab = { newTab() },
-                onDuplicateTab = ::duplicateTab,
-                onTogglePin = ::togglePinTab,
-                onToggleMute = ::toggleMuteTab,
-                onReloadTab = ::reloadTab,
-                onReorder = ::reorderTabs,
-                isFullscreen = isWorkspaceFullscreen,
-                onToggleFullscreen = { setWorkspaceFullscreen(!isWorkspaceFullscreen) },
-                isFindBarOpen = isFindBarOpen,
-                onCloseFindBar = { isFindBarOpen = false; browserEngine?.stopFind() },
-                isMenuOpen = isMenuOpen,
-                onOpenMenu = { isMenuOpen = true },
-                onDismissMenu = { isMenuOpen = false },
-                onShowPanel = { panel -> activePanel = panel; isSidebarVisible = true },
-                onOpenSettings = { isSettingsOpen = true },
-                onRequestExit = onRequestExit,
-                onOpenNewWindow = onOpenNewWindow,
-                onOpenIncognitoWindow = onOpenIncognitoWindow,
-                addressFocusRequester = addressFocusRequester,
-                modifier = Modifier.weight(1f)
-            )
-
-            if (isCopilotVisible && !isWorkspaceFullscreen) {
-                VerticalResizeHandle(onDragDeltaPx = { deltaPx ->
+            // Bug #3 fix: strip 6dp murni Compose di paling bawah -- SENGAJA
+            // di luar Row di atas (bukan overlay), supaya benar-benar TIDAK
+            // ketutupan SwingPanel milik JCEFBrowserView. Cuma tampil saat
+            // window floating (bukan maximized/fullscreen -- resize manual
+            // tidak relevan di kondisi itu).
+            if (!isWorkspaceFullscreen && windowState?.placement == WindowPlacement.Floating) {
+                HorizontalResizeHandle(onDragDeltaPx = { deltaPx ->
                     val deltaDp = with(density) { deltaPx.toDp().value }
-                    copilotWidthDp = (copilotWidthDp - deltaDp).coerceIn(MIN_PANEL_WIDTH_DP, MAX_COPILOT_WIDTH_DP)
+                    windowState?.let { ws ->
+                        val newHeight = (ws.size.height.value + deltaDp).coerceAtLeast(480f)
+                        ws.size = DpSize(ws.size.width, newHeight.dp)
+                    }
                 })
-                CopilotPanel(
-                    engine = browserEngine,
-                    gatewayConfig = gatewayConfig,
-                    modifier = Modifier.width(copilotWidthDp.dp)
-                )
             }
         }
     }
