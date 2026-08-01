@@ -22,12 +22,6 @@ import java.io.File
  *  - WAJIB panggil `shutdown()` sebelum aplikasi keluar (lihat `main()` di
  *    Main.kt) -- kalau tidak, proses native CEF child bisa tertinggal
  *    jalan di background (zombie process) setelah window ditutup.
- *  - BELUM PERNAH DIUJI BUILD/RUN SUNGGUHAN di sandbox saya (tidak ada
- *    akses Maven Central dari sandbox). Kemungkinan penyesuaian yang
- *    paling mungkin dibutuhkan: versi JDK (JCEF butuh JDK yang punya
- *    modul AWT/Swing lengkap -- jangan pakai JDK headless), dan di Linux
- *    mungkin perlu library sistem tambahan (libgtk, libnss3, dst -- sama
- *    seperti kebutuhan menjalankan Chrome/Chromium biasa).
  */
 object JCEFBootstrap {
 

@@ -4,51 +4,57 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.tradepilot.desktop.explorer.BookmarkStore
+import com.tradepilot.desktop.theme.AppColors
+import com.tradepilot.desktop.theme.Dimens
 
 /**
  * Toolbar navigasi ala browser sungguhan: Back / Forward / Reload + address
- * bar bebas ketik URL apa saja, + toggle Fullscreen (Fase 10).
+ * bar bebas ketik URL apa saja, tombol bookmark, tombol menu (Prioritas 6),
+ * + toggle Fullscreen.
  *
- * FIX bug yang dilaporkan user (versi sebelumnya):
- * 1. "Teks URL ketutup" -- OutlinedTextField sebelumnya dipaksa .height(40.dp),
- *    lebih kecil dari tinggi wajar Material3 OutlinedTextField (~56dp),
- *    bikin teksnya ke-clip. Sekarang tinggi dibiarkan natural.
- * 2. "Buka website selain shortcut tidak bisa" -- 2 penyebab digabung:
- *    a) Tombol "Buka" sebelumnya DIGANTI oleh spinner loading (bukan
- *       ditampilkan BERSAMA), jadi kalau isLoadingState nyangkut true,
- *       tombolnya hilang & tidak ada cara submit URL lewat mouse.
- *       Sekarang tombol Buka SELALU ada, spinner cuma indikator kecil
- *       tambahan di sampingnya.
- *    b) KeyboardActions(onDone=...) itu konsep ImeAction (mobile/IME),
- *       belum tentu ke-trigger konsisten oleh tombol Enter FISIK di
- *       desktop (AWT/Swing input, bukan IME sungguhan). Ditambah
- *       Modifier.onPreviewKeyEvent yang tangkap Key.Enter langsung
- *       sebagai jalur kedua yang lebih pasti di desktop.
+ * Prioritas 4 (Compact Toolbar): dibanding versi lama --
+ *  - padding vertical Row 6dp -> Dimens.TOOLBAR_PADDING_V_DP (4dp)
+ *  - address field: OutlinedTextField M3 natural (~56dp) -> AddressBar
+ *    custom 32dp (Dimens.ADDRESS_FIELD_HEIGHT_DP)
+ *  - quick-link row: AssistChip default M3 (~32dp) -> chip custom
+ *    Dimens.QUICK_LINK_CHIP_HEIGHT_DP (26dp), padding vertical dikurangi
+ *  Estimasi total tinggi toolbar (2 baris): lama ~56+32=88dp+padding,
+ *  baru ~32+26=58dp+padding -- kira-kira -25-30% sesuai target prompt.
+ *
+ * FIX bug lama yang tetap dipertahankan (dari versi sebelumnya, TIDAK
+ * dihapus saat compact-kan):
+ * 1. Tombol "Buka" SELALU tampil (bukan diganti spinner saat loading).
+ * 2. Enter fisik ditangkap lewat onPreviewKeyEvent (bukan cuma
+ *    KeyboardActions/ImeAction yang tidak konsisten di desktop AWT/Swing).
  */
 @Composable
 fun BrowserBar(
     engine: JCEFBrowserEngine?,
     isFullscreen: Boolean,
     onToggleFullscreen: () -> Unit,
+    onOpenMenu: () -> Unit,
+    addressFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
     var addressField by remember(engine) { mutableStateOf(engine?.addressState ?: "") }
@@ -64,88 +70,97 @@ fun BrowserBar(
         engine?.loadUrl(target)
     }
 
-    Column(modifier = modifier.background(Color(0xFF2D2D2D))) {
+    val currentUrl = engine?.addressState ?: ""
+    val isBookmarked = BookmarkStore.isBookmarked(currentUrl)
+
+    Column(modifier = modifier.background(AppColors.SurfaceRaised)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.TOOLBAR_PADDING_H_DP.dp, vertical = Dimens.TOOLBAR_PADDING_V_DP.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { engine?.goBack() }, enabled = engine?.canGoBackState == true) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Kembali", tint = iconTint(engine?.canGoBackState == true))
+            IconButton(onClick = { engine?.goBack() }, enabled = engine?.canGoBackState == true, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Kembali (Alt+Left)", tint = iconTint(engine?.canGoBackState == true), modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = { engine?.goForward() }, enabled = engine?.canGoForwardState == true) {
-                Icon(Icons.Default.ArrowForward, contentDescription = "Maju", tint = iconTint(engine?.canGoForwardState == true))
+            IconButton(onClick = { engine?.goForward() }, enabled = engine?.canGoForwardState == true, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.ArrowForward, contentDescription = "Maju (Alt+Right)", tint = iconTint(engine?.canGoForwardState == true), modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = { engine?.reload() }, enabled = engine != null) {
-                Icon(Icons.Default.Refresh, contentDescription = "Muat ulang", tint = iconTint(engine != null))
+            IconButton(onClick = { engine?.reload() }, enabled = engine != null, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.Refresh, contentDescription = "Muat ulang (Ctrl+R / F5)", tint = iconTint(engine != null), modifier = Modifier.size(18.dp))
             }
 
             Spacer(Modifier.width(4.dp))
 
-            OutlinedTextField(
+            AddressBar(
                 value = addressField,
                 onValueChange = {
                     isEditing = true
                     addressField = it
                 },
-                // TIDAK ada .height() manual di sini -- itu penyebab bug
-                // "teks ketutup" sebelumnya (lihat catatan kelas).
-                modifier = Modifier
-                    .weight(1f)
-                    .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            (event.key == Key.Enter || event.key == Key.NumPadEnter)
-                        ) {
-                            navigate(addressField)
-                            true
-                        } else {
-                            false
-                        }
-                    },
-                singleLine = true,
-                shape = RoundedCornerShape(20.dp),
-                textStyle = MaterialTheme.typography.bodyMedium,
-                placeholder = { Text("Ketik URL — mis. youtube.com, github.com, shopee.co.id...") },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xFF1E1E1E),
-                    unfocusedContainerColor = Color(0xFF1E1E1E)
-                )
+                onSubmit = ::navigate,
+                isBookmarked = isBookmarked,
+                onToggleBookmark = { BookmarkStore.toggle(currentUrl, engine?.titleState ?: currentUrl) },
+                focusRequester = addressFocusRequester,
+                modifier = Modifier.weight(1f)
             )
 
             Spacer(Modifier.width(4.dp))
 
             if (engine?.isLoadingState == true) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(6.dp))
             }
             // SELALU tampil (dulu: diganti spinner saat loading, jadi kadang
-            // hilang & user tidak punya cara klik submit -- lihat catatan kelas).
-            TextButton(onClick = { navigate(addressField) }) { Text("Buka") }
+            // hilang & user tidak punya cara klik submit).
+            IconButton(onClick = { navigate(addressField) }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.Send, contentDescription = "Buka", tint = AppColors.TextPrimary, modifier = Modifier.size(16.dp))
+            }
 
-            IconButton(onClick = onToggleFullscreen) {
+            IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(30.dp)) {
                 Icon(
                     if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                    contentDescription = if (isFullscreen) "Keluar fullscreen" else "Fullscreen",
-                    tint = Color.White
+                    contentDescription = if (isFullscreen) "Keluar fullscreen (F11/Esc)" else "Fullscreen (F11)",
+                    tint = AppColors.TextPrimary,
+                    modifier = Modifier.size(18.dp)
                 )
+            }
+
+            // Prioritas 6: tombol menu Chrome-style, PopupMenu isinya di
+            // BrowserMenu.kt.
+            IconButton(onClick = onOpenMenu, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = AppColors.TextPrimary, modifier = Modifier.size(18.dp))
             }
         }
 
         // Quick-links: bukti browser ini tidak dikunci ke satu situs.
         LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = Dimens.QUICK_LINK_ROW_PADDING_V_DP.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(QUICK_LINKS) { link ->
+                // TIDAK dipaksa .height(Dimens.QUICK_LINK_CHIP_HEIGHT_DP.dp) --
+                // itu risiko bug clipping yang SAMA PERSIS seperti address bar
+                // lama (Material3 AssistChip juga punya tinggi natural minimum,
+                // sekitar 32dp, dipaksa ke 26dp bisa motong teks). Compact-nya
+                // cukup diserahkan ke padding baris (QUICK_LINK_ROW_PADDING_V_DP)
+                // yang aman diubah tanpa menyentuh internal AssistChip.
                 AssistChip(
                     onClick = { navigate(link.url) },
-                    label = { Text(link.label, fontWeight = FontWeight.Medium) }
+                    label = { Text2(link.label) },
+                    colors = AssistChipDefaults.assistChipColors(containerColor = AppColors.SurfaceSunken)
                 )
             }
         }
     }
 }
 
-private fun iconTint(enabled: Boolean): Color = if (enabled) Color.White else Color.Gray
+@androidx.compose.runtime.Composable
+private fun Text2(text: String) {
+    androidx.compose.material3.Text(text, fontWeight = FontWeight.Medium, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, color = AppColors.TextPrimary)
+}
+
+private fun iconTint(enabled: Boolean): Color = if (enabled) AppColors.TextPrimary else AppColors.TextDisabled
 
 private data class QuickLink(val label: String, val url: String)
 
