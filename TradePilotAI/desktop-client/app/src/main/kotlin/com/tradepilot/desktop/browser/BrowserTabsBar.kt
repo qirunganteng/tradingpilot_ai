@@ -2,6 +2,8 @@ package com.tradepilot.desktop.browser
 
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.PointerMatcher
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.onClick
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -26,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +57,7 @@ import kotlinx.coroutines.launch
  * Prioritas 4 (Compact Toolbar): tinggi 36dp -> Dimens.TAB_BAR_HEIGHT_DP
  * (28dp), lebar tab 168dp -> Dimens.TAB_WIDTH_DP (152dp).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BrowserTabsBar(
     tabs: List<BrowserTab>,
@@ -103,14 +108,11 @@ fun BrowserTabsBar(
             modifier = Modifier
                 .size(Dimens.TAB_BAR_HEIGHT_DP.dp)
                 // Prioritas 10: Middle Click juga buka tab baru dari tombol "+".
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            if (event.buttons.isMiddlePressed) onNewTab()
-                        }
-                    }
-                }
+                // Dipakai API resmi desktop Compose (PointerMatcher.mouse +
+                // PointerButton.Tertiary) -- bukan awaitPointerEvent() manual
+                // yang sebelumnya gagal compile ('isMiddlePressed' tidak ada
+                // di versi Compose Foundation yang dipakai project ini).
+                .onClick(matcher = PointerMatcher.mouse(PointerButton.Tertiary), onClick = onNewTab)
         ) {
             Icon(Icons.Default.Add, contentDescription = "Tab baru (Ctrl+T)", tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
         }

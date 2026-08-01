@@ -135,7 +135,7 @@ fun ActivityBar(
  * tint accent, ala VSCode), tooltip, dan click animation (scale-down
  * singkat saat ditekan).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ActivityBarIcon(
     icon: ImageVector,
@@ -162,7 +162,7 @@ private fun ActivityBarIcon(
     )
 
     TooltipBox(
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(tooltip) } },
         state = rememberTooltipState()
     ) {
