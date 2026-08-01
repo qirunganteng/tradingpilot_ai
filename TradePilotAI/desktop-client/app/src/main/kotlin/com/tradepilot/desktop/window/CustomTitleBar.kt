@@ -1,6 +1,7 @@
 package com.tradepilot.desktop.window
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -26,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
-import androidx.compose.ui.window.WindowDraggableArea
 import com.tradepilot.desktop.theme.AppColors
 import com.tradepilot.desktop.theme.Dimens
 import java.awt.Frame
@@ -76,18 +76,22 @@ private fun FrameWindowScope.CustomTitleBar(
 ) {
     val isMaximized = windowState.placement == WindowPlacement.Maximized
 
-    // WindowDraggableArea adalah composable BAWAAN Compose Desktop (bukan
-    // reimplementasi manual) -- ini yang menggantikan kemampuan "drag window"
-    // yang otomatis hilang begitu title bar native dibuang (undecorated=true).
-    WindowDraggableArea(
+    // Karena Compose Desktop versi yang dipakai di project ini tidak
+    // menyediakan WindowDraggableArea, kita implementasikan drag window
+    // manual lewat pointerInput + window.setLocation().
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(Dimens.TITLE_BAR_HEIGHT_DP.dp)
             .background(AppColors.Base)
-            // Double-click title bar = toggle maximize, sama seperti
-            // Chrome/Windows title bar asli.
             .pointerInput(Unit) {
                 detectTapGestures(onDoubleTap = { onToggleMaximize() })
+            }
+            .pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    window.setLocation(window.x + dragAmount.x.toInt(), window.y + dragAmount.y.toInt())
+                }
             }
     ) {
         Row(
