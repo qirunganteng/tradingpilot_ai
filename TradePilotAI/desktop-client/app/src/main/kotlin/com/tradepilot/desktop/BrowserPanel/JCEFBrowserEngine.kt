@@ -1,4 +1,4 @@
-package com.tradepilot.desktop.browser
+package com.tradepilot.desktop.duplicate.browserpanel
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf

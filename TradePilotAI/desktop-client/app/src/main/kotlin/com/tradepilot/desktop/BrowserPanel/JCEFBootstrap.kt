@@ -1,4 +1,4 @@
-package com.tradepilot.desktop.browser
+package com.tradepilot.desktop.duplicate.browserpanel
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

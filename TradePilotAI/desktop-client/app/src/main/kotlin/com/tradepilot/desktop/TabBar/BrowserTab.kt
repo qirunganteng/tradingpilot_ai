@@ -1,4 +1,4 @@
-package com.tradepilot.desktop.browser
+package com.tradepilot.desktop.duplicate.tabbar
 
 /**
  * Model 1 tab browser (Fase 10: multi-tab).

@@ -1,4 +1,4 @@
-package com.tradepilot.desktop.layout
+package com.tradepilot.desktop.duplicate.layouts
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable

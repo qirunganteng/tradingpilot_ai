@@ -1,4 +1,4 @@
-package com.tradepilot.desktop.browser
+package com.tradepilot.desktop.duplicate.toolbar
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

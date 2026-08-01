@@ -1,4 +1,4 @@
-package com.tradepilot.desktop.browser
+package com.tradepilot.desktop.duplicate.tabbar
 
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem

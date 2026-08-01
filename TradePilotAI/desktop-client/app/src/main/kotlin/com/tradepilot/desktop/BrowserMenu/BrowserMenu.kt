@@ -1,4 +1,4 @@
-package com.tradepilot.desktop.browser
+package com.tradepilot.desktop.duplicate.browsermenu
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
