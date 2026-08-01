@@ -109,9 +109,26 @@ object UpdateInstaller {
      * melakukan swap folder instalasi setelah app benar-benar tertutup
      * (supaya file tidak "locked" oleh proses yang masih jalan).
      *
-     * PENTING: caller WAJIB memanggil `exitProcess(0)` SEGERA setelah
-     * fungsi ini, supaya helper tidak menunggu lama untuk deteksi app
-     * sudah exit.
+     * FIX BUG (auto-update tidak jalan): versi sebelumnya memanggil
+     * `cmd /c start "" /min <path>` lewat ProcessBuilder array-of-args --
+     * ProcessBuilder di Windows MENGUTIP ULANG setiap elemen array secara
+     * otomatis kalau elemen itu "terlihat perlu di-quote", dan elemen
+     * `"\"\""` (dua karakter tanda kutip literal) rawan KEQUOTE DOBEL saat
+     * direkonstruksi jadi satu command line untuk CreateProcess -- hasilnya
+     * command line yang dikirim ke `start` bisa jadi rusak/beda dari yang
+     * dimaksud, dan `start` gagal menjalankan helper TANPA melempar
+     * exception apa pun di sisi Java (makanya "gagal diam-diam" -- inilah
+     * kemungkinan besar penyebab auto-update belum pernah benar-benar
+     * jalan meski proses check+download+extract di atas semuanya sukses).
+     *
+     * Fix: HILANGKAN `start` dari rantai perintah sama sekali -- langsung
+     * `cmd /c <path-helper>` TANPA argumen tambahan yang rawan quote. Ini
+     * kehilangan efek "sembunyikan window cmd" yang tadinya dikasih `start
+     * /min` (jadi akan ada jendela cmd hitam yang muncul sebentar ~2-3
+     * detik saat proses swap file berjalan), TAPI jauh lebih bisa
+     * diandalkan -- tidak ada lagi celah salah-quote karena cuma SATU
+     * argumen path (yang di-quote otomatis oleh ProcessBuilder dengan
+     * benar kalau mengandung spasi, tanpa ambiguitas apa pun).
      */
     fun launchHelperAndExit(installDir: File, stagingDir: File, exeName: String) {
         val pid = ProcessHandle.current().pid()
@@ -145,7 +162,7 @@ object UpdateInstaller {
             (goto) 2>NUL & del "%~f0"
             """.trimIndent()
         )
-        ProcessBuilder("cmd.exe", "/c", "start", "\"\"", "/min", helperScript.absolutePath)
+        ProcessBuilder("cmd.exe", "/c", helperScript.absolutePath)
             .directory(installDir)
             .start()
     }

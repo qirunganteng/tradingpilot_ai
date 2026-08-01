@@ -286,12 +286,6 @@ class JCEFBrowserEngine(
 
     companion object {
         /**
-         * Address bar browser biasa menerima ketikan tanpa skema ("youtube.com",
-         * "github.com/qirunganteng") -- tanpa ini JCEF akan menganggapnya query
-         * pencarian aneh atau gagal load. Kalau sudah ada skema (http/https/
-         * file/data/about, dst) dibiarkan apa adanya.
-         */
-        /**
          * Bug baru ("browser cuma bisa dipakai buat web yang sudah ada
          * shortcut, selain itu nggak bisa"): root cause-nya fungsi ini dulu
          * HANYA nambahin "https://" di depan input apa pun tanpa skema --

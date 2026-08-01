@@ -7,13 +7,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.ApplicationScope
+import java.awt.GraphicsEnvironment
 
 /**
  * Prioritas 1: hapus title bar putih bawaan Windows/JVM.
@@ -28,24 +31,27 @@ import androidx.compose.ui.window.ApplicationScope
  * (window jadi kotak polos tanpa dekorasi apa pun dari OS). Sebagai gantinya
  * kita gambar sendiri title bar custom (lihat CustomTitleBar.kt).
  *
- * BUG #8 FIX ("fullscreen mentok di bawah tombol X"): dulu toggle fullscreen
- * cuma menyembunyikan konten INTERNAL Workbench, window OS-nya sendiri tetap
- * di WindowPlacement.Floating/Maximized biasa dan CustomTitleBar (32dp)
- * selalu tetap tampil di atasnya. Sekarang AppWindow mengamati
- * [AppFullscreenState] (lihat AppFullscreenState.kt, di-toggle dari
- * Workbench lewat F11/tombol fullscreen) dan mendorong window BENAR-BENAR
- * ke WindowPlacement.Fullscreen (edge-to-edge, menutup seluruh layar
- * termasuk area taskbar) begitu aktif -- dikombinasikan dengan
- * CustomTitleBarHost yang skip render title bar row saat fullscreen (lihat
- * CustomTitleBar.kt), hasilnya benar-benar mentok ke ujung atas layar
- * persis seperti Chrome F11, bukan cuma berhenti di bawah title bar lagi.
- * Placement sebelum fullscreen disimpan supaya balik ke situ (bukan selalu
- * ke Floating) saat keluar fullscreen.
+ * BUG #8 FIX ASLI ("fullscreen mentok di bawah tombol X") + FIX REGRESI
+ * BARU ("fullscreen -> klik menu/Settings -> semua tombol freeze + bunyi
+ * beep"): perbaikan #8 sebelumnya pakai `WindowPlacement.Fullscreen` (mode
+ * OS EXCLUSIVE fullscreen sungguhan). Itu benar menyelesaikan #8, TAPI
+ * begitu BrowserMenu.kt & SettingsDialog.kt diperbaiki (oleh proses lain,
+ * pindah dari DropdownMenu/Dialog ke [DialogWindow] -- window OS terpisah
+ * sungguhan, lihat catatan di file-file itu), muncul REGRESI baru: window
+ * OS baru yang di-spawn SAAT window utama sedang exclusive-fullscreen bikin
+ * Windows bingung soal fokus input (window fullscreen exclusive biasanya
+ * "mengunci" fokus ke dirinya sendiri) -- hasilnya klik di DialogWindow
+ * baru tidak diterima sama sekali, dan OS berbunyi beep tiap kali input
+ * "nyasar" ke window yang tidak bisa menerimanya.
  *
- * isIncognito: dipakai buat menu "New Incognito Window" (Browser Menu) --
- * cuma mengubah judul window supaya kelihatan jelas ini window incognito,
- * isolasi cookie/cache sesungguhnya ada di level JCEFBrowserEngine (lihat
- * catatan jujur di sana soal batasannya).
+ * Fix: JANGAN pakai `WindowPlacement.Fullscreen` (exclusive) sama sekali --
+ * cukup resize window yang MASIH `WindowPlacement.Floating` biasa supaya
+ * posisi & ukurannya PERSIS menutupi seluruh layar (pakai
+ * `GraphicsEnvironment` buat tahu bounds layar). Secara visual hasilnya
+ * SAMA PERSIS (edge-to-edge, dikombinasikan dengan CustomTitleBarHost yang
+ * skip render title bar row saat fullscreen), TAPI window tetap window
+ * "biasa" di mata OS -- tidak ada mode exclusive yang bisa bentrok dengan
+ * DialogWindow lain.
  */
 @Composable
 fun ApplicationScope.AppWindow(
@@ -58,16 +64,29 @@ fun ApplicationScope.AppWindow(
         size = DpSize(1280.dp, 800.dp)
     )
     val fullscreenState = remember { AppFullscreenState() }
-    var placementBeforeFullscreen by remember { mutableStateOf(WindowPlacement.Floating) }
+    val density = LocalDensity.current
+
+    var savedPlacement by remember { mutableStateOf(WindowPlacement.Floating) }
+    var savedPosition by remember { mutableStateOf<WindowPosition?>(null) }
+    var savedSize by remember { mutableStateOf<DpSize?>(null) }
 
     LaunchedEffect(fullscreenState.isFullscreen) {
         if (fullscreenState.isFullscreen) {
-            if (windowState.placement != WindowPlacement.Fullscreen) {
-                placementBeforeFullscreen = windowState.placement
+            savedPlacement = windowState.placement
+            savedPosition = windowState.position
+            savedSize = windowState.size
+
+            val screenBounds = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .defaultScreenDevice.defaultConfiguration.bounds
+            windowState.placement = WindowPlacement.Floating
+            with(density) {
+                windowState.position = WindowPosition(screenBounds.x.toDp(), screenBounds.y.toDp())
+                windowState.size = DpSize(screenBounds.width.toDp(), screenBounds.height.toDp())
             }
-            windowState.placement = WindowPlacement.Fullscreen
-        } else if (windowState.placement == WindowPlacement.Fullscreen) {
-            windowState.placement = placementBeforeFullscreen
+        } else {
+            savedSize?.let { windowState.size = it }
+            savedPosition?.let { windowState.position = it }
+            windowState.placement = savedPlacement
         }
     }
 
