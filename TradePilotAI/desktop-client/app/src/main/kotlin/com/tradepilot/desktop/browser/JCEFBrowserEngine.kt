@@ -47,11 +47,37 @@ import java.awt.Component
  */
 class JCEFBrowserEngine(
     cefClient: CefClient,
-    startUrl: String
+    startUrl: String,
+    isIncognito: Boolean = false
 ) : BrowserEngine {
 
-    /** Komponen AWT untuk di-embed lewat `SwingPanel` di Compose Desktop. */
-    val browser: CefBrowser = cefClient.createBrowser(startUrl, false, false)
+    /**
+     * Prioritas baru (New Incognito Window): kalau isIncognito=true, coba
+     * buat browser dengan CefRequestContext TERPISAH & terisolasi (tidak
+     * dikasih cache_path -> in-memory only, tidak persist cookie/cache ke
+     * disk) -- ini pola standar CEF/JCEF untuk mode incognito/private.
+     *
+     * CATATAN JUJUR: ini best-effort, dibungkus try-catch persis seperti
+     * openDevTools() di bawah -- kalau versi JCEF yang dipakai project ini
+     * tidak mendukung `CefRequestContext.createContext(null)` dengan cara
+     * yang saya asumsikan (atau melempar exception karena alasan lain),
+     * fallback ke context biasa (SAMA seperti window normal, TIDAK
+     * terisolasi) daripada meng-crash seluruh window baru. Belum sempat
+     * saya uji interaktif (tidak ada akses jalankan aplikasi Windows dari
+     * sini) -- tolong verifikasi cookie/history benar-benar tidak
+     * tersimpan sebelum mengandalkan ini untuk kerahasiaan sungguhan.
+     */
+    val browser: CefBrowser = if (isIncognito) {
+        try {
+            val requestContext = org.cef.browser.CefRequestContext.createContext(null)
+            cefClient.createBrowser(startUrl, false, false, requestContext)
+        } catch (t: Throwable) {
+            println("[JCEFBrowserEngine] Gagal buat request context incognito terisolasi, fallback ke context biasa (TIDAK terisolasi): ${t.message}")
+            cefClient.createBrowser(startUrl, false, false)
+        }
+    } else {
+        cefClient.createBrowser(startUrl, false, false)
+    }
     val uiComponent: Component get() = browser.uiComponent
 
     var addressState by mutableStateOf(startUrl)
@@ -204,6 +230,53 @@ class JCEFBrowserEngine(
         } catch (t: Throwable) {
             println("[JCEFBrowserEngine] DevTools tidak tersedia di build JCEF ini: ${t.message}")
         }
+    }
+
+    /**
+     * Browser Menu -- "Print": CefBrowser.print() membuka dialog print
+     * native OS untuk halaman yang sedang aktif. Best-effort/try-catch
+     * sama seperti openDevTools() -- tergantung dukungan versi JCEF.
+     */
+    fun print() {
+        try {
+            browser.print()
+        } catch (t: Throwable) {
+            println("[JCEFBrowserEngine] Print tidak tersedia di build JCEF ini: ${t.message}")
+        }
+    }
+
+    /**
+     * Browser Menu -- "Clear Browsing Data": hapus SEMUA cookie lewat
+     * CefCookieManager global (mempengaruhi semua tab/window yang berbagi
+     * CefClient yang sama, bukan cuma tab ini -- itu memang perilaku wajar
+     * "Clear Browsing Data" di browser sungguhan). History lokal (HistoryStore)
+     * dibersihkan terpisah di Workbench.kt (data itu murni disimpan app kita,
+     * bukan lewat CEF). Reload halaman aktif di akhir supaya efeknya (mis.
+     * logout dari situs yang session-nya berbasis cookie) langsung kelihatan.
+     */
+    fun clearBrowsingData() {
+        try {
+            org.cef.network.CefCookieManager.getGlobalManager()?.deleteCookies(null, null)
+        } catch (t: Throwable) {
+            println("[JCEFBrowserEngine] Gagal hapus cookies: ${t.message}")
+        }
+        reload()
+    }
+
+    /**
+     * Mitigasi bug #10 ("klik maximize, halaman browser jadi putih kosong") --
+     * SwingPanel yang membungkus komponen native JCEF kadang tidak dapat
+     * notifikasi resize yang benar dari OS saat window di-maximize/restore
+     * lewat WindowPlacement. Dipanggil dari JCEFBrowserView.kt setiap kali
+     * window placement/size berubah (lihat window/AppFullscreenState.kt --
+     * LocalAppWindowState) untuk memaksa komponen browser revalidate +
+     * repaint dirinya sendiri.
+     */
+    fun notifyResized() {
+        val component = uiComponent
+        component.invalidate()
+        component.validate()
+        component.repaint()
     }
 
     /** Panggil saat Composable-nya dibuang dari komposisi (lihat Main.kt). */

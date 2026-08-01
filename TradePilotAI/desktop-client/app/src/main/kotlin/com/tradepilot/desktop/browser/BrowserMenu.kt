@@ -23,20 +23,21 @@ import com.tradepilot.desktop.theme.AppColors
  * padahal cuma placeholder:
  *  - New Tab, Recent Tabs, History, Bookmarks, Downloads, Find, Zoom in/out,
  *    Reset Zoom -> BENAR-BENAR jalan, wired ke callback nyata.
- *  - New Window, New Incognito Window, Print, Clear Browsing Data -> STUB.
- *    Ini butuh perubahan di luar modul UI (mis. New Window butuh proses
- *    aplikasi kedua / Window() composable baru dengan JCEF context terpisah,
- *    Incognito butuh CefRequestContext terpisah per JCEF docs, Print butuh
- *    CefBrowser.print() yang belum dites, Clear Browsing Data butuh akses ke
- *    CefCookieManager/cache -- semua ini domain JCEFBootstrap/JCEFBrowserEngine
- *    yang README asli minta jangan disentuh tanpa sepengetahuan kamu). Diberi
- *    callback kosong + tetap tampil (disabled=false) supaya kelihatan jelas
- *    di menu, tapi silakan cek TODO di Main.kt sebelum menganggap ini jalan.
+ *  - New Window -> BENAR-BENAR buka window baru (lihat Main.kt: daftar
+ *    window dikelola di `application { }`, tiap window punya JCEFBrowserEngine
+ *    sendiri dari CefClient yang sama).
+ *  - New Incognito Window -> buka window baru dengan JCEFBrowserEngine yang
+ *    mencoba pakai CefRequestContext terisolasi (lihat catatan jujur soal
+ *    batasannya di JCEFBrowserEngine.kt -- best-effort, belum sempat diuji
+ *    interaktif).
+ *  - Print -> panggil `CefBrowser.print()` langsung (best-effort/try-catch,
+ *    tergantung dukungan versi JCEF, lihat JCEFBrowserEngine.kt).
+ *  - Clear Browsing Data -> hapus HistoryStore lokal + semua cookie CEF
+ *    lewat CefCookieManager global (lihat JCEFBrowserEngine.clearBrowsingData()).
  *  - Developer Tools -> CefBrowser.startDevTools() memang tersedia di JCEF,
  *    diwire langsung ke browser aktif.
  *  - Settings -> panggil onOpenSettings yang SAMA persis dengan tombol
- *    Settings di ActivityBar (SettingsDialog tidak disertakan di paket file
- *    ini, tapi callback-nya sudah ada dari Main.kt lama).
+ *    Settings di ActivityBar.
  *  - Exit -> panggil onExit yang sama dengan tombol Close di CustomTitleBar
  *    (termasuk shutdown JCEFBootstrap, lihat Main.kt).
  */

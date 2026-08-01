@@ -44,22 +44,31 @@ import java.awt.Frame
 fun FrameWindowScope.CustomTitleBarHost(
     windowState: WindowState,
     onRequestExit: () -> Unit,
+    isIncognito: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    // Bug #8 fix: skip render title bar row sama sekali saat workspace
+    // fullscreen aktif -- dikombinasikan dengan AppWindow.kt yang mendorong
+    // window ke WindowPlacement.Fullscreen sungguhan, hasilnya konten benar-
+    // benar mentok ke ujung atas layar, bukan cuma berhenti di bawah title
+    // bar 32dp seperti bug sebelumnya.
+    val isFullscreen = LocalAppFullscreenState.current.isFullscreen
     Column(modifier = Modifier.fillMaxSize().background(AppColors.Base)) {
-        CustomTitleBar(
-            title = "TradePilot AI",
-            windowState = windowState,
-            onMinimize = { window.extendedState = Frame.ICONIFIED },
-            onToggleMaximize = {
-                windowState.placement = if (windowState.placement == WindowPlacement.Maximized) {
-                    WindowPlacement.Floating
-                } else {
-                    WindowPlacement.Maximized
-                }
-            },
-            onClose = onRequestExit
-        )
+        if (!isFullscreen) {
+            CustomTitleBar(
+                title = if (isIncognito) "TradePilot AI — Incognito" else "TradePilot AI",
+                windowState = windowState,
+                onMinimize = { window.extendedState = Frame.ICONIFIED },
+                onToggleMaximize = {
+                    windowState.placement = if (windowState.placement == WindowPlacement.Maximized) {
+                        WindowPlacement.Floating
+                    } else {
+                        WindowPlacement.Maximized
+                    }
+                },
+                onClose = onRequestExit
+            )
+        }
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             content()
         }

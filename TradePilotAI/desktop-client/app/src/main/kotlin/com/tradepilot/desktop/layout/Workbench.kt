@@ -34,6 +34,7 @@ import com.tradepilot.desktop.settings.SettingsDialog
 import com.tradepilot.desktop.theme.AppColors
 import com.tradepilot.desktop.updater.UpdateBanner
 import com.tradepilot.desktop.updater.UpdateManager
+import com.tradepilot.desktop.window.LocalAppFullscreenState
 import com.tradepilot.domain.browser.EXNESS_WEBTRADING_URL
 
 private const val MIN_PANEL_WIDTH_DP = 160f
@@ -41,32 +42,52 @@ private const val MAX_SIDEBAR_WIDTH_DP = 420f
 private const val MAX_COPILOT_WIDTH_DP = 520f
 
 /**
- * Pengganti `Workbench()` lama di `Main.kt`. Kalau kamu bandingkan dengan
- * versi lama: struktur besar (Row berisi ActivityBar/SideBar/Workspace/
- * CopilotPanel + SettingsDialog di bawahnya) TETAP SAMA -- yang berubah
- * adalah ActivityBar & SideBar sekarang datang dari modul terpisah
- * (activitybar/ dan explorer/) yang sungguhan berfungsi, bukan cuma teks
- * statis, dan Workspace sekarang membungkus segalanya lewat
- * [FullscreenRevealHost] supaya Prioritas 9 (address bar hilang total saat
- * fullscreen) benar-benar terpenuhi.
+ * Perakit utama UI (ActivityBar/SideBar/Workspace/CopilotPanel + dialog).
  *
- * CopilotPanel / SettingsDialog / DesktopSettingsStore dipanggil PERSIS
- * seperti versi lama -- import & pemakaiannya tidak diubah sama sekali
- * (Prioritas 14: jangan sentuh business logic / gateway).
+ * PEMBARUAN (perbaikan bug laporan terbaru):
+ *  - Bug #8 (fullscreen mentok di bawah tombol X): "isWorkspaceFullscreen"
+ *    dulu state LOKAL murni di sini -- sekarang dibaca/ditulis lewat
+ *    [LocalAppFullscreenState] (CompositionLocal, lihat window/
+ *    AppFullscreenState.kt) supaya AppWindow.kt & CustomTitleBar.kt di luar
+ *    Workbench ini juga tahu & ikut menyembunyikan diri + mendorong window
+ *    ke WindowPlacement.Fullscreen sungguhan.
+ *  - Bug #9 (kolom Explorer belum bisa disembunyikan): klik ulang icon
+ *    ActivityBar yang SEDANG aktif sekarang toggle `isSidebarVisible`,
+ *    bukan cuma ganti activePanel (yang isinya sama, jadi user tidak lihat
+ *    perubahan apa pun).
+ *  - New Window / New Incognito Window (dulu stub kosong di BrowserMenu):
+ *    diteruskan lewat parameter `onOpenNewWindow`/`onOpenIncognitoWindow`
+ *    dari Main.kt (lihat catatan lengkap di sana soal daftar window).
+ *  - Print / Clear Browsing Data (dulu stub kosong): sekarang benar-benar
+ *    memanggil `browserEngine?.print()` / `browserEngine?.clearBrowsingData()`
+ *    (lihat JCEFBrowserEngine.kt).
  */
 @Composable
-fun Workbench(onRequestExit: () -> Unit) {
+fun Workbench(
+    onRequestExit: () -> Unit,
+    isIncognito: Boolean = false,
+    onOpenNewWindow: () -> Unit = {},
+    onOpenIncognitoWindow: () -> Unit = {}
+) {
     var isCopilotVisible by remember { mutableStateOf(true) }
     var browserEngine by remember { mutableStateOf<JCEFBrowserEngine?>(null) }
     var gatewayConfig by remember { mutableStateOf(DesktopSettingsStore.resolve()) }
     var isSettingsOpen by remember { mutableStateOf(false) }
 
-    var isWorkspaceFullscreen by remember { mutableStateOf(false) }
+    // Bug #8 fix: fullscreen sekarang state BERSAMA lewat CompositionLocal,
+    // bukan `remember { mutableStateOf(false) }` lokal -- lihat dokumentasi
+    // lengkap di window/AppFullscreenState.kt.
+    val fullscreenState = LocalAppFullscreenState.current
+    val isWorkspaceFullscreen = fullscreenState.isFullscreen
+    fun setWorkspaceFullscreen(value: Boolean) { fullscreenState.isFullscreen = value }
+
     var sideBarWidthDp by remember { mutableStateOf(240f) }
     var copilotWidthDp by remember { mutableStateOf(320f) }
     val density = LocalDensity.current
 
     var activePanel by remember { mutableStateOf(SidePanel.EXPLORER) }
+    // Bug #9 fix: sidebar (ExplorerPanel) sekarang bisa disembunyikan.
+    var isSidebarVisible by remember { mutableStateOf(true) }
     var isFindBarOpen by remember { mutableStateOf(false) }
     var isMenuOpen by remember { mutableStateOf(false) }
     val addressFocusRequester = remember { FocusRequester() }
@@ -86,8 +107,9 @@ fun Workbench(onRequestExit: () -> Unit) {
     // TIDAK ada polling berkala (keputusan produk). Kalau ada update,
     // download berjalan otomatis di background (lihat UpdateManager.kt);
     // hasilnya ditampilkan lewat UpdateBanner di bawah, restart tetap
-    // wajib klik konfirmasi user.
-    LaunchedEffect(Unit) { UpdateManager.checkAndDownload() }
+    // wajib klik konfirmasi user. Sengaja TIDAK dijalankan di window
+    // incognito/kedua (cek update sekali per PROSES aplikasi sudah cukup).
+    LaunchedEffect(Unit) { if (!isIncognito) UpdateManager.checkAndDownload() }
 
     // Sinkronkan url/title tab aktif setiap kali navigasi terjadi, DAN catat
     // ke History (Prioritas 3) begitu URL berubah.
@@ -203,11 +225,11 @@ fun Workbench(onRequestExit: () -> Unit) {
             reload = { browserEngine?.reload() },
             openFind = { isFindBarOpen = true },
             toggleBookmark = { BookmarkStore.toggle(currentUrl, currentTitle.ifBlank { currentUrl }) },
-            toggleFullscreen = { isWorkspaceFullscreen = !isWorkspaceFullscreen },
+            toggleFullscreen = { setWorkspaceFullscreen(!isWorkspaceFullscreen) },
             goBack = { browserEngine?.goBack() },
             goForward = { browserEngine?.goForward() },
             isFullscreen = { isWorkspaceFullscreen },
-            exitFullscreen = { isWorkspaceFullscreen = false }
+            exitFullscreen = { setWorkspaceFullscreen(false) }
         )
     }
 
@@ -239,30 +261,44 @@ fun Workbench(onRequestExit: () -> Unit) {
             if (!isWorkspaceFullscreen) {
                 ActivityBar(
                     activePanel = activePanel,
-                    onSelectPanel = { activePanel = it },
+                    onSelectPanel = { panel ->
+                        // Bug #9 fix: klik icon yang SUDAH aktif & sidebar
+                        // sedang terbuka -> tutup sidebar (toggle). Klik icon
+                        // lain, atau klik icon yang sama saat sidebar lagi
+                        // tertutup -> buka sidebar dengan panel itu.
+                        if (panel == activePanel && isSidebarVisible) {
+                            isSidebarVisible = false
+                        } else {
+                            activePanel = panel
+                            isSidebarVisible = true
+                        }
+                    },
                     isCopilotVisible = isCopilotVisible,
                     onToggleCopilot = { isCopilotVisible = !isCopilotVisible },
                     onOpenSettings = { isSettingsOpen = true }
                 )
-                ExplorerPanel(
-                    activePanel = activePanel,
-                    tabs = tabs,
-                    activeTabId = activeTabId,
-                    pinnedSites = pinnedSites,
-                    onOpenUrl = { url -> newTab(url) },
-                    onSelectTab = ::selectTab,
-                    onRemoveBookmark = { BookmarkStore.remove(it) },
-                    modifier = Modifier.width(sideBarWidthDp.dp)
-                )
-                VerticalResizeHandle(onDragDeltaPx = { deltaPx ->
-                    val deltaDp = with(density) { deltaPx.toDp().value }
-                    sideBarWidthDp = (sideBarWidthDp + deltaDp).coerceIn(MIN_PANEL_WIDTH_DP, MAX_SIDEBAR_WIDTH_DP)
-                })
+                if (isSidebarVisible) {
+                    ExplorerPanel(
+                        activePanel = activePanel,
+                        tabs = tabs,
+                        activeTabId = activeTabId,
+                        pinnedSites = pinnedSites,
+                        onOpenUrl = { url -> newTab(url) },
+                        onSelectTab = ::selectTab,
+                        onRemoveBookmark = { BookmarkStore.remove(it) },
+                        modifier = Modifier.width(sideBarWidthDp.dp)
+                    )
+                    VerticalResizeHandle(onDragDeltaPx = { deltaPx ->
+                        val deltaDp = with(density) { deltaPx.toDp().value }
+                        sideBarWidthDp = (sideBarWidthDp + deltaDp).coerceIn(MIN_PANEL_WIDTH_DP, MAX_SIDEBAR_WIDTH_DP)
+                    })
+                }
             }
 
             Workspace(
                 engine = browserEngine,
                 onEngineReady = { browserEngine = it },
+                isIncognito = isIncognito,
                 tabs = tabs,
                 activeTabId = activeTabId,
                 onSelectTab = ::selectTab,
@@ -274,15 +310,17 @@ fun Workbench(onRequestExit: () -> Unit) {
                 onReloadTab = ::reloadTab,
                 onReorder = ::reorderTabs,
                 isFullscreen = isWorkspaceFullscreen,
-                onToggleFullscreen = { isWorkspaceFullscreen = !isWorkspaceFullscreen },
+                onToggleFullscreen = { setWorkspaceFullscreen(!isWorkspaceFullscreen) },
                 isFindBarOpen = isFindBarOpen,
                 onCloseFindBar = { isFindBarOpen = false; browserEngine?.stopFind() },
                 isMenuOpen = isMenuOpen,
                 onOpenMenu = { isMenuOpen = true },
                 onDismissMenu = { isMenuOpen = false },
-                onShowPanel = { activePanel = it },
+                onShowPanel = { panel -> activePanel = panel; isSidebarVisible = true },
                 onOpenSettings = { isSettingsOpen = true },
                 onRequestExit = onRequestExit,
+                onOpenNewWindow = onOpenNewWindow,
+                onOpenIncognitoWindow = onOpenIncognitoWindow,
                 addressFocusRequester = addressFocusRequester,
                 modifier = Modifier.weight(1f)
             )
@@ -317,6 +355,7 @@ fun Workbench(onRequestExit: () -> Unit) {
 private fun Workspace(
     engine: JCEFBrowserEngine?,
     onEngineReady: (JCEFBrowserEngine) -> Unit,
+    isIncognito: Boolean,
     tabs: List<BrowserTab>,
     activeTabId: String,
     onSelectTab: (String) -> Unit,
@@ -337,6 +376,8 @@ private fun Workspace(
     onShowPanel: (SidePanel) -> Unit,
     onOpenSettings: () -> Unit,
     onRequestExit: () -> Unit,
+    onOpenNewWindow: () -> Unit,
+    onOpenIncognitoWindow: () -> Unit,
     addressFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
@@ -375,20 +416,23 @@ private fun Workspace(
                                 expanded = isMenuOpen,
                                 onDismiss = onDismissMenu,
                                 onNewTab = onNewTab,
-                                onNewWindow = { /* TODO: lihat catatan jujur di BrowserMenu.kt */ },
-                                onNewIncognitoWindow = { /* TODO */ },
+                                onNewWindow = onOpenNewWindow,
+                                onNewIncognitoWindow = onOpenIncognitoWindow,
                                 onShowHistory = { onShowPanel(SidePanel.HISTORY) },
                                 onShowBookmarks = { onShowPanel(SidePanel.BOOKMARKS) },
                                 onShowDownloads = { onShowPanel(SidePanel.DOWNLOADS) },
                                 onShowRecentTabs = { onShowPanel(SidePanel.EXPLORER) },
-                                onPrint = { /* TODO */ },
+                                onPrint = { engine?.print() },
                                 onZoomIn = { engine?.zoomIn() },
                                 onZoomOut = { engine?.zoomOut() },
                                 onResetZoom = { engine?.resetZoom() },
                                 onFind = { /* dibuka lewat isFindBarOpen di Workbench, lihat shortcutActions */ },
                                 onOpenDevTools = { engine?.openDevTools() },
                                 onOpenSettings = onOpenSettings,
-                                onClearBrowsingData = { HistoryStore.clear() /* cookie/cache: lihat catatan BrowserMenu.kt */ },
+                                onClearBrowsingData = {
+                                    HistoryStore.clear()
+                                    engine?.clearBrowsingData()
+                                },
                                 onExit = onRequestExit
                             )
                         }
@@ -397,7 +441,11 @@ private fun Workspace(
             },
             browserContent = {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    JCEFBrowserView(modifier = Modifier.fillMaxSize(), onEngineReady = onEngineReady)
+                    JCEFBrowserView(
+                        modifier = Modifier.fillMaxSize(),
+                        isIncognito = isIncognito,
+                        onEngineReady = onEngineReady
+                    )
                     if (isFindBarOpen) {
                         Box(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
                             FindBar(

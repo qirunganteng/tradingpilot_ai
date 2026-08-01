@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,9 +46,24 @@ fun FullscreenRevealHost(
     modifier: Modifier = Modifier
 ) {
     if (!isFullscreen) {
-        Box(modifier = modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxWidth()) { hiddenChrome() }
-            Box(modifier = Modifier.fillMaxSize()) { browserContent() }
+        // FIX BUG: sebelumnya di sini pakai Box + fillMaxSize/fillMaxWidth untuk
+        // KEDUA child (hiddenChrome & browserContent) sekaligus -- itu bikin
+        // keduanya TUMPANG TINDIH di posisi yang sama (Box menggambar child
+        // berurutan, yang belakangan "di atas"). Karena browserContent berisi
+        // JCEFBrowserView yang di-render lewat SwingPanel (komponen native/
+        // heavyweight AWT), SwingPanel SELALU digambar di atas konten Compose
+        // apa pun yang tumpang tindih koordinatnya, terlepas dari urutan kode
+        // -- jadi TabsBar + BrowserBar (address bar) + BrowserMenu yang ada di
+        // hiddenChrome jadi TERTUTUP TOTAL oleh browser, cuma keliatan
+        // "terminal Exness doang" walau kodenya sebenarnya sudah benar/lengkap.
+        //
+        // FIX: pakai Column, bukan Box -- hiddenChrome (TabsBar+BrowserBar)
+        // ambil tinggi natural-nya di ATAS, browserContent ambil SISA ruang di
+        // BAWAHNYA (weight(1f)) -- keduanya jadi bersebelahan vertikal, TIDAK
+        // tumpang tindih sama sekali, persis layout Chrome/VSCode yang benar.
+        Column(modifier = modifier.fillMaxSize()) {
+            hiddenChrome()
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) { browserContent() }
         }
         return
     }

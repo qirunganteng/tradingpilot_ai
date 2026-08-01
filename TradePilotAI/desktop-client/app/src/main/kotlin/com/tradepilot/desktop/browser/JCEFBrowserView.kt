@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
 import com.tradepilot.desktop.theme.AppColors
+import com.tradepilot.desktop.window.LocalAppWindowState
 import com.tradepilot.domain.browser.EXNESS_WEBTRADING_URL
 
 /**
@@ -57,6 +58,10 @@ fun JCEFBrowserView(
     // starting point -- engine di bawah tidak membatasi navigasi ke domain
     // manapun sesudahnya (lihat catatan di JCEFBrowserEngine).
     startUrl: String = EXNESS_WEBTRADING_URL,
+    // New Incognito Window: diteruskan ke JCEFBrowserEngine untuk pakai
+    // CefRequestContext terisolasi (lihat catatan jujur soal batasannya di
+    // JCEFBrowserEngine.kt).
+    isIncognito: Boolean = false,
     onEngineReady: (JCEFBrowserEngine) -> Unit = {}
 ) {
     var statusMessage by remember { mutableStateOf("Menyiapkan JCEF...") }
@@ -66,7 +71,7 @@ fun JCEFBrowserView(
     LaunchedEffect(Unit) {
         when (val result = JCEFBootstrap.initialize(onProgress = { statusMessage = it })) {
             is JCEFBootstrap.InitResult.Success -> {
-                val newEngine = JCEFBrowserEngine(result.client, startUrl)
+                val newEngine = JCEFBrowserEngine(result.client, startUrl, isIncognito)
                 engine = newEngine
                 onEngineReady(newEngine)
             }
@@ -80,6 +85,21 @@ fun JCEFBrowserView(
         onDispose {
             engine?.dispose()
         }
+    }
+
+    // Mitigasi bug #10 ("klik maximize, halaman browser jadi putih kosong") --
+    // lihat catatan lengkap di window/AppFullscreenState.kt (LocalAppWindowState).
+    // Setiap kali placement (Floating/Maximized/Fullscreen) atau size window
+    // berubah, paksa komponen browser revalidate+repaint dirinya sendiri.
+    val windowState = LocalAppWindowState.current
+    LaunchedEffect(engine, windowState?.placement, windowState?.size) {
+        val currentEngine = engine ?: return@LaunchedEffect
+        if (windowState == null) return@LaunchedEffect
+        // Dua kali dengan jeda kecil -- resize native AWT/CEF kadang butuh
+        // satu frame tambahan sebelum ukuran barunya benar-benar "settle".
+        currentEngine.notifyResized()
+        kotlinx.coroutines.delay(80)
+        currentEngine.notifyResized()
     }
 
     Box(modifier = modifier.fillMaxSize()) {
