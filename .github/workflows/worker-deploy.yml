@@ -2,13 +2,13 @@ name: Cloudflare Worker - Test & Deploy
 on:
   push:
     branches: ["main"]
-    paths: ["TradePilotAI/backend/cloudflare-worker/**"]
+    paths: ["cloudflare-worker/**"]
   pull_request:
     branches: ["main"]
-    paths: ["TradePilotAI/backend/cloudflare-worker/**"]
+    paths: ["cloudflare-worker/**"]
 defaults:
   run:
-    working-directory: TradePilotAI/backend/cloudflare-worker
+    working-directory: cloudflare-worker
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: TradePilotAI/backend/cloudflare-worker/package-lock.json
+          cache-dependency-path: cloudflare-worker/package-lock.json
       - name: Install dependencies
         run: npm install
       - name: Typecheck
@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: TradePilotAI/backend/cloudflare-worker/package-lock.json
+          cache-dependency-path: cloudflare-worker/package-lock.json
       - name: Install dependencies
         run: npm install
       - name: Deploy ke Cloudflare
@@ -47,5 +47,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: TradePilotAI/backend/cloudflare-worker
+          workingDirectory: cloudflare-worker
           command: deploy
