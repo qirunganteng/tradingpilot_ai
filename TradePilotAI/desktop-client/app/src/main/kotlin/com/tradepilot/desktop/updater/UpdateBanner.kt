@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,22 +35,18 @@ import com.tradepilot.desktop.theme.AppColors
 
 /**
  * Overlay non-intrusive di pojok kanan-atas Workspace (lihat pemasangannya
- * di layout/Workbench.kt) untuk auto-updater (Level 2).
+ * di layout/Workbench.kt) untuk auto-updater.
  *
- * Sengaja HANYA tampil untuk state Downloading / ReadyToInstall / Failed --
- * state Idle & Checking TIDAK menampilkan apa pun sama sekali, karena cek +
- * download di background itu memang tidak perlu diketahui user selama
- * belum ada keputusan yang perlu diambil (sesuai keputusan produk: jangan
- * ganggu user, restart tetap wajib konfirmasi).
+ * State Idle & Checking TIDAK menampilkan apa pun -- cek di background
+ * tidak perlu diketahui user. Verifying, Downloading, ReadyToInstall, dan
+ * Failed semuanya tampil supaya proses verifikasi checksum & rollback
+ * (lihat UpdateInstaller.kt) tidak terkesan "diam-diam" ke user.
  */
 @Composable
 fun UpdateBanner(modifier: Modifier = Modifier) {
     var isDismissed by remember { mutableStateOf(false) }
     val state = UpdateManager.state
 
-    // Reset dismiss setiap kali muncul update BARU (SHA beda dari terakhir
-    // kali user klik "Nanti"/"Tutup") -- supaya dismiss satu update tidak
-    // permanen membisukan banner untuk update berikutnya.
     var lastSeenSha by remember { mutableStateOf<String?>(null) }
     val currentSha = (state as? UpdateState.ReadyToInstall)?.manifest?.commitSha
     LaunchedEffect(currentSha) {
@@ -59,7 +56,12 @@ fun UpdateBanner(modifier: Modifier = Modifier) {
         }
     }
 
-    val isVisible = !isDismissed && (state is UpdateState.Downloading || state is UpdateState.ReadyToInstall || state is UpdateState.Failed)
+    val isVisible = !isDismissed && (
+        state is UpdateState.Downloading ||
+            state is UpdateState.Verifying ||
+            state is UpdateState.ReadyToInstall ||
+            state is UpdateState.Failed
+        )
 
     AnimatedVisibility(
         visible = isVisible,
@@ -78,7 +80,8 @@ fun UpdateBanner(modifier: Modifier = Modifier) {
         ) {
             when (val s = state) {
                 is UpdateState.Downloading -> DownloadingContent(s)
-                is UpdateState.ReadyToInstall -> ReadyToInstallContent(onDismiss = { isDismissed = true })
+                is UpdateState.Verifying -> VerifyingContent()
+                is UpdateState.ReadyToInstall -> ReadyToInstallContent(s, onDismiss = { isDismissed = true })
                 is UpdateState.Failed -> FailedContent(s, onDismiss = { isDismissed = true })
                 else -> Unit
             }
@@ -115,7 +118,16 @@ private fun DownloadingContent(state: UpdateState.Downloading) {
 }
 
 @Composable
-private fun ReadyToInstallContent(onDismiss: () -> Unit) {
+private fun VerifyingContent() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text("Memverifikasi file pembaruan…", style = MaterialTheme.typography.labelMedium, color = AppColors.TextPrimary)
+    }
+}
+
+@Composable
+private fun ReadyToInstallContent(state: UpdateState.ReadyToInstall, onDismiss: () -> Unit) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AppColors.Success, modifier = Modifier.size(18.dp))
@@ -124,6 +136,15 @@ private fun ReadyToInstallContent(onDismiss: () -> Unit) {
             IconButton(onClick = onDismiss, modifier = Modifier.size(20.dp)) {
                 Icon(Icons.Default.Close, contentDescription = "Tutup", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
             }
+        }
+        if (state.manifest.notes.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                state.manifest.notes,
+                style = MaterialTheme.typography.labelSmall,
+                color = AppColors.TextSecondary,
+                maxLines = 3
+            )
         }
         Spacer(Modifier.height(4.dp))
         Text(

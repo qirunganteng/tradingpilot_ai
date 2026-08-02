@@ -42,14 +42,23 @@ jobs:
       # generateBuildInfo) vs SHA terbaru di sini -- beda berarti ada update.
       # File ini di-upload ke release "latest" yang sama & SELALU ditimpa,
       # persis seperti zip-nya, jadi URL-nya juga tidak pernah berubah.
+      #
+      # sha256: dipakai UpdateInstaller.verifyChecksum() di app untuk
+      # memverifikasi file zip yang sudah di-download benar-benar utuh
+      # (bukan korup/terpotong di tengah jalan) sebelum dipasang.
+      # notes: pesan commit git asli (bukan sekadar SHA) supaya user lihat
+      # release notes yang bermakna di UpdateBanner, bukan cuma hash.
       - name: Generate version manifest
         shell: pwsh
         run: |
+          $zipHash = (Get-FileHash -Path "TradePilotAI-Desktop-Windows.zip" -Algorithm SHA256).Hash.ToLower()
+          $commitMessage = git log -1 --pretty=%s
           $manifest = @{
             commitSha   = "${{ github.sha }}"
             downloadUrl = "https://github.com/${{ github.repository }}/releases/download/latest/TradePilotAI-Desktop-Windows.zip"
             builtAt     = (Get-Date -AsUTC -Format o)
-            notes       = "Auto-update dari commit ${{ github.sha }}"
+            notes       = $commitMessage
+            sha256      = $zipHash
           } | ConvertTo-Json
           Set-Content -Path "version.json" -Value $manifest -Encoding utf8
 

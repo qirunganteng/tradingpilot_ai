@@ -6,10 +6,11 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
+import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
 /**
- * Download + extract + swap file lewat helper `.bat` terpisah.
+ * Download + verifikasi + extract + swap file lewat helper `.bat` terpisah.
  *
  * KENAPA TIDAK REPLACE LANGSUNG: distributable Windows project ini adalah
  * portable folder (`createDistributable`, lihat desktop-build.yml), BUKAN
@@ -18,18 +19,13 @@ import java.util.zip.ZipInputStream
  * sedang jalan tidak bisa menimpa dirinya sendiri. Makanya update baru
  * di-extract ke folder staging terpisah dulu, lalu sebuah helper `.bat`
  * yang berjalan sebagai proses TERPISAH (bukan child yang ikut mati) yang
- * menunggu app ini benar-benar exit, baru menimpa folder instalasi asli.
+ * menunggu app ini benar-benar exit, baru menimpa folder instalasi asli --
+ * dengan backup + rollback otomatis kalau exe baru gagal start.
  */
 object UpdateInstaller {
 
     private val client: HttpClient = HttpClient.newBuilder().build()
 
-    /**
-     * Root folder instalasi = folder tempat "TradePilot AI.exe" berada.
-     * Return null kalau app TIDAK sedang berjalan sebagai native launcher
-     * jpackage (mis. dijalankan lewat `gradlew run` / IDE saat development)
-     * -- dalam kasus itu auto-update memang tidak bisa/tidak perlu jalan.
-     */
     fun currentInstallDir(): File? = currentExeFile()?.parentFile
 
     fun currentExeName(): String? = currentExeFile()?.name
@@ -42,10 +38,6 @@ object UpdateInstaller {
 
     /** Download zip ke temp file. Return null kalau gagal (mis. offline). */
     fun downloadZip(url: String, onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit): File? {
-        // tempZip dideklarasikan di luar try supaya bisa dibersihkan di catch
-        // kalau exception terjadi DI TENGAH penulisan (mis. koneksi putus
-        // separuh jalan) -- sebelumnya file separuh-jadi ini tidak pernah
-        // dihapus dan menumpuk di temp dir tiap kali download gagal.
         var tempZip: File? = null
         return try {
             val request = HttpRequest.newBuilder(URI.create(url)).GET().build()
@@ -73,6 +65,30 @@ object UpdateInstaller {
         }
     }
 
+    /**
+     * Verifikasi: hitung SHA-256 file yang sudah di-download, bandingkan
+     * dengan yang tercatat di version.json (diisi CI saat build, lihat
+     * desktop-build.yml). Kalau manifest tidak punya sha256 (mis. build
+     * lama sebelum field ini ada), verifikasi DILEWATI (bukan gagal) --
+     * supaya tidak mem-brick auto-update untuk transisi ke skema baru ini.
+     * Kalau manifest PUNYA sha256 tapi tidak cocok -> file dianggap
+     * korup/berubah di tengah jalan, JANGAN dipasang.
+     */
+    fun verifyChecksum(file: File, expectedSha256: String): Boolean {
+        if (expectedSha256.isBlank()) return true
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        return actual.equals(expectedSha256, ignoreCase = true)
+    }
+
     /** Extract zip ke folder staging baru di temp dir. Return null kalau gagal. */
     fun extractToStaging(zipFile: File): File? {
         return try {
@@ -81,8 +97,6 @@ object UpdateInstaller {
                 var entry = zip.nextEntry
                 while (entry != null) {
                     val outFile = File(stagingDir, entry.name)
-                    // Cegah Zip Slip -- pastikan hasil extract tidak bisa keluar
-                    // dari stagingDir walau nama entry berisi "../".
                     val normalizedStaging = stagingDir.canonicalPath + File.separator
                     if (!outFile.canonicalPath.startsWith(normalizedStaging)) {
                         throw SecurityException("Entry zip mencurigakan: ${entry.name}")
@@ -105,33 +119,30 @@ object UpdateInstaller {
 
     /**
      * Tulis helper batch script + jalankan sebagai proses terpisah
-     * (detached, TIDAK ikut mati saat app exit). Helper inilah yang
-     * melakukan swap folder instalasi setelah app benar-benar tertutup
-     * (supaya file tidak "locked" oleh proses yang masih jalan).
+     * (detached, TIDAK ikut mati saat app exit).
      *
-     * FIX BUG (auto-update tidak jalan): versi sebelumnya memanggil
-     * `cmd /c start "" /min <path>` lewat ProcessBuilder array-of-args --
-     * ProcessBuilder di Windows MENGUTIP ULANG setiap elemen array secara
-     * otomatis kalau elemen itu "terlihat perlu di-quote", dan elemen
-     * `"\"\""` (dua karakter tanda kutip literal) rawan KEQUOTE DOBEL saat
-     * direkonstruksi jadi satu command line untuk CreateProcess -- hasilnya
-     * command line yang dikirim ke `start` bisa jadi rusak/beda dari yang
-     * dimaksud, dan `start` gagal menjalankan helper TANPA melempar
-     * exception apa pun di sisi Java (makanya "gagal diam-diam" -- inilah
-     * kemungkinan besar penyebab auto-update belum pernah benar-benar
-     * jalan meski proses check+download+extract di atas semuanya sukses).
+     * Alur helper (dengan ROLLBACK, bukan cuma swap satu arah):
+     *  1. Tunggu proses app lama (PID) benar-benar exit.
+     *  2. BACKUP: mirror INSTALL_DIR ke BACKUP_DIR (bukan cuma swap
+     *     langsung) -- supaya ada yang bisa dikembalikan kalau versi baru
+     *     ternyata gagal jalan.
+     *  3. SWAP: mirror STAGING_DIR ke INSTALL_DIR (install versi baru).
+     *  4. START versi baru, tunggu sebentar, CEK apakah prosesnya benar-
+     *     benar hidup (bukan langsung crash startup).
+     *  5a. Kalau hidup -> bersihkan STAGING_DIR & BACKUP_DIR, selesai.
+     *  5b. Kalau TIDAK terdeteksi hidup dalam waktu tunggu -> ROLLBACK:
+     *     mirror BACKUP_DIR balik ke INSTALL_DIR, start ulang versi LAMA,
+     *     supaya user tidak ditinggal dengan instalasi yang rusak.
      *
-     * Fix: HILANGKAN `start` dari rantai perintah sama sekali -- langsung
-     * `cmd /c <path-helper>` TANPA argumen tambahan yang rawan quote. Ini
-     * kehilangan efek "sembunyikan window cmd" yang tadinya dikasih `start
-     * /min` (jadi akan ada jendela cmd hitam yang muncul sebentar ~2-3
-     * detik saat proses swap file berjalan), TAPI jauh lebih bisa
-     * diandalkan -- tidak ada lagi celah salah-quote karena cuma SATU
-     * argumen path (yang di-quote otomatis oleh ProcessBuilder dengan
-     * benar kalau mengandung spasi, tanpa ambiguitas apa pun).
+     * `cmd /c <path>` TANPA "start" -- ProcessBuilder Windows mengutip
+     * ulang tiap elemen array, dan argumen "start"-related rawan ke-quote
+     * dobel sehingga command gagal jalan TANPA exception di sisi Java
+     * (silent failure -- ini penyebab auto-update sebelumnya tidak pernah
+     * benar-benar terpasang meski proses download terlihat sukses).
      */
     fun launchHelperAndExit(installDir: File, stagingDir: File, exeName: String) {
         val pid = ProcessHandle.current().pid()
+        val backupDir = File(System.getProperty("java.io.tmpdir"), "tradepilot-update-backup")
         val helperScript = File(System.getProperty("java.io.tmpdir"), "tradepilot-updater-helper.bat")
         helperScript.writeText(
             """
@@ -139,6 +150,7 @@ object UpdateInstaller {
             set "PID=$pid"
             set "INSTALL_DIR=${installDir.absolutePath}"
             set "STAGING_DIR=${stagingDir.absolutePath}"
+            set "BACKUP_DIR=${backupDir.absolutePath}"
             set "EXE_NAME=$exeName"
 
             :waitloop
@@ -151,14 +163,30 @@ object UpdateInstaller {
             REM Jeda ekstra supaya OS benar-benar melepas file lock setelah proses exit.
             timeout /t 2 /nobreak >NUL
 
-            REM /MIR = mirror exact (hapus file di INSTALL_DIR yang sudah
-            REM tidak ada di STAGING_DIR, mis. jar lama yang namanya berubah)
-            REM -- /E saja cuma menambah/menimpa dan bisa menyisakan file usang.
+            REM Backup instalasi lama sebelum ditimpa -- dasar buat rollback.
+            robocopy "%INSTALL_DIR%" "%BACKUP_DIR%" /MIR /IS /IT /R:3 /W:1 >NUL
+
+            REM Pasang versi baru.
             robocopy "%STAGING_DIR%" "%INSTALL_DIR%" /MIR /IS /IT /R:5 /W:2 >NUL
 
             start "" "%INSTALL_DIR%\%EXE_NAME%"
 
-            rmdir /S /Q "%STAGING_DIR%" >NUL 2>&1
+            REM Beri waktu app baru untuk benar-benar hidup sebelum dianggap sukses.
+            timeout /t 4 /nobreak >NUL
+
+            tasklist /FI "IMAGENAME eq %EXE_NAME%" 2>NUL | find /I "%EXE_NAME%" >NUL
+            if "%ERRORLEVEL%"=="0" (
+                REM Sukses -- bersihkan staging & backup.
+                rmdir /S /Q "%STAGING_DIR%" >NUL 2>&1
+                rmdir /S /Q "%BACKUP_DIR%" >NUL 2>&1
+            ) else (
+                REM Versi baru tidak terdeteksi hidup -- ROLLBACK ke backup.
+                robocopy "%BACKUP_DIR%" "%INSTALL_DIR%" /MIR /IS /IT /R:5 /W:2 >NUL
+                start "" "%INSTALL_DIR%\%EXE_NAME%"
+                rmdir /S /Q "%STAGING_DIR%" >NUL 2>&1
+                rmdir /S /Q "%BACKUP_DIR%" >NUL 2>&1
+            )
+
             (goto) 2>NUL & del "%~f0"
             """.trimIndent()
         )
