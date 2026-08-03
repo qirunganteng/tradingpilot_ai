@@ -1,21 +1,21 @@
 package com.tradepilot.desktop.browser
 
 /**
- * Model 1 tab browser (Fase 10: multi-tab).
+ * Model 1 tab browser (Fase 10: multi-tab, jadi PARALEL sungguhan sejak
+ * FASE 2 -- lihat TabbedBrowserHost.kt).
  *
- * BATASAN JUJUR: ini BUKAN tab Chrome sungguhan yang masing-masing punya
- * proses Chromium sendiri (itu berarti N tab = N instance JCEF penuh di
- * RAM -- berat & butuh refactor lifecycle JCEFBrowserEngine yang jauh
- * lebih besar). Implementasi v1 ini: SATU JCEFBrowserEngine dipakai
- * bergantian oleh semua tab -- pindah tab = engine.loadUrl(tab.url) ke URL
- * terakhir tab itu. Konsekuensinya: scroll position / form yang belum
- * disubmit / state JS di tab lain HILANG saat kamu pindah tab lalu balik
- * lagi (session login/cookies tetap aman karena itu disimpan per-domain
- * oleh browser, bukan per-tab). Kalau ke depan butuh tab yang benar-benar
- * paralel (mis. mantau beberapa chart real-time sekaligus), itu Fase 11
- * terpisah -- beri tahu saya kalau itu prioritasnya.
+ * FASE 2 -- UPDATE (menggantikan "BATASAN JUJUR" versi lama di sini yang
+ * bilang "SATU JCEFBrowserEngine dipakai bergantian oleh semua tab"):
+ * sekarang tiap tab BENAR-BENAR punya JCEFBrowserEngine (CefBrowser +
+ * CefClient) sendiri-sendiri, persis Chrome sungguhan. Scroll position/
+ * form yang belum disubmit/state JS di tab lain TIDAK lagi hilang saat
+ * pindah tab -- semua tab yang terbuka tetap "hidup" penuh di background.
+ * Trade-off yang SEKARANG berlaku (bukan lagi trade-off versi lama):
+ * N tab terbuka = N instance browser penuh di RAM (belum ada tab
+ * discarding/suspend untuk hemat memori -- kandidat optimisasi performa
+ * ke depan, bukan blocker fungsional).
  *
- * Prioritas 11 (Multi Tab) menambah 2 field baru vs versi lama:
+ * Prioritas 11 (Multi Tab) menambah 2 field vs versi lama:
  *  - isPinned: tab pin tidak ikut kena "Close Other Tabs" & selalu tampil
  *    duluan di TabsBar (urutan pin di-enforce di BrowserTabsBar, bukan di
  *    model ini).

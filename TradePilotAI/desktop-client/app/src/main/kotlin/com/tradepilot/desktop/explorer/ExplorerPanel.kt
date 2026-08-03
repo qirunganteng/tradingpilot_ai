@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.Icon
@@ -177,11 +178,61 @@ private fun BookmarksList(onOpenUrl: (String) -> Unit, onRemove: (String) -> Uni
  */
 @Composable
 private fun DownloadsList() {
-    EmptyHint(
-        "Belum ada handler unduhan (CefDownloadHandler) yang disambungkan. " +
-            "UI panel ini sudah siap -- lihat catatan di ExplorerModels.kt " +
-            "(DownloadEntry) untuk cara menyambungkannya."
-    )
+    val entries = DownloadStore.entries
+    if (entries.isEmpty()) {
+        EmptyHint("Belum ada unduhan di sesi ini.")
+        return
+    }
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item { GroupLabel("Downloads") }
+        items(entries, key = { it.id }) { entry ->
+            ExplorerRow(
+                title = entry.fileName,
+                subtitle = when {
+                    entry.isCanceled -> "Dibatalkan"
+                    entry.isComplete -> entry.fullPath
+                    else -> "Mengunduh... ${entry.progressPercent}%"
+                },
+                onClick = {
+                    // FASE 3 -- File Handler: buka file yang sudah selesai
+                    // diunduh pakai aplikasi default OS (java.awt.Desktop),
+                    // sama seperti klik entry Downloads di Chrome. Best-effort
+                    // (try-catch) -- Desktop.open() bisa gagal kalau tidak ada
+                    // aplikasi default terdaftar untuk tipe file itu di OS.
+                    if (entry.isComplete && !entry.isCanceled) {
+                        try {
+                            val file = java.io.File(entry.fullPath)
+                            if (file.exists() && java.awt.Desktop.isDesktopSupported()) {
+                                java.awt.Desktop.getDesktop().open(file)
+                            }
+                        } catch (t: Throwable) {
+                            println("[DownloadsList] Gagal buka file: ${t.message}")
+                        }
+                    }
+                },
+                trailing = {
+                    // "Show in folder" -- buka folder Downloads yang berisi file
+                    // ini (Desktop.open() pada DIREKTORI membuka file explorer OS
+                    // di lokasi itu, bukan mencoba "menjalankan" folder).
+                    IconButton(
+                        onClick = {
+                            try {
+                                val parent = java.io.File(entry.fullPath).parentFile
+                                if (parent != null && parent.exists() && java.awt.Desktop.isDesktopSupported()) {
+                                    java.awt.Desktop.getDesktop().open(parent)
+                                }
+                            } catch (t: Throwable) {
+                                println("[DownloadsList] Gagal buka folder: ${t.message}")
+                            }
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "Tampilkan di folder", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Composable

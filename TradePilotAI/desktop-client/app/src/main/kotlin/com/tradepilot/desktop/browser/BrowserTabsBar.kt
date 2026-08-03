@@ -38,9 +38,12 @@ import com.tradepilot.desktop.theme.Dimens
 import kotlinx.coroutines.launch
 
 /**
- * Baris tab ala Chrome (Fase 10, dikembangkan Prioritas 11) -- lihat batasan
- * di BrowserTab.kt (satu engine dipakai bergantian, bukan tab paralel
- * sungguhan; mute murni state UI).
+ * Baris tab ala Chrome (Fase 10, dikembangkan Prioritas 11, Multi Tab
+ * sungguhan sejak FASE 2 -- lihat TabbedBrowserHost.kt: setiap tab di sini
+ * sekarang punya JCEFBrowserEngine PARALEL sendiri, bukan lagi satu engine
+ * dipakai bergantian seperti sebelumnya). Mute masih murni state UI (belum
+ * ada API JCEF untuk benar-benar mute audio per-tab, lihat catatan di
+ * `toggleMuteTab` Workbench.kt kalau ditambahkan).
  *
  * Prioritas 11 -- tambahan dibanding versi lama:
  *  - Klik kanan tab -> context menu: Close / Duplicate / Pin-Unpin / Mute-

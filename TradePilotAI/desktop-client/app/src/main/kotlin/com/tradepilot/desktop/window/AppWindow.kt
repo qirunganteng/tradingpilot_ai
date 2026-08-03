@@ -57,14 +57,66 @@ import java.awt.GraphicsEnvironment
 fun ApplicationScope.AppWindow(
     onRequestExit: () -> Unit,
     isIncognito: Boolean = false,
+    // Window State (FASE 2) -- id yang SAMA dengan WindowSpec.id di Main.kt/
+    // SessionStore, dipakai sebagai key penyimpanan posisi+ukuran window ini
+    // lewat WindowStateStore.kt. null (default) = tidak ada persistensi sama
+    // sekali, dipakai untuk kasus yang sengaja tidak mau diingat (saat ini
+    // tidak ada, tapi disediakan sebagai escape hatch).
+    windowId: Int? = null,
     content: @Composable () -> Unit
 ) {
+    // Window State (FASE 2, item "Window State" -- SEBELUM ini window SELALU
+    // mulai 1280x800 posisi default OS, walau user sudah resize/pindah
+    // sebelumnya). Kalau ada bounds tersimpan untuk windowId ini, pakai itu;
+    // x/y == -1 artinya "ukuran diketahui tapi posisi belum pernah tersimpan
+    // untuk id INI" (lihat WindowStateStore.loadLastUsedSizeOnly) -- biarkan
+    // posisi tetap default OS (jangan override), cuma ukurannya yang dipakai.
+    // SENGAJA skip total untuk incognito (windowId null-kan) -- prinsip yang
+    // sama dengan SessionStore.kt: window incognito tidak meninggalkan jejak
+    // apa pun di disk, termasuk ukuran/posisinya sendiri.
+    val persistedWindowId = windowId?.takeUnless { isIncognito }
+    val savedBounds = remember(persistedWindowId) { persistedWindowId?.let { WindowStateStore.load(it) } }
     val windowState: WindowState = rememberWindowState(
-        placement = WindowPlacement.Floating,
-        size = DpSize(1280.dp, 800.dp)
+        placement = if (savedBounds?.isMaximized == true) WindowPlacement.Maximized else WindowPlacement.Floating,
+        position = if (savedBounds != null && savedBounds.x >= 0 && savedBounds.y >= 0) {
+            WindowPosition(savedBounds.x.dp, savedBounds.y.dp)
+        } else {
+            WindowPosition.PlatformDefault
+        },
+        size = if (savedBounds != null) {
+            DpSize(savedBounds.width.dp, savedBounds.height.dp)
+        } else {
+            DpSize(1280.dp, 800.dp)
+        }
     )
     val fullscreenState = remember { AppFullscreenState() }
     val density = LocalDensity.current
+
+    // Simpan posisi/ukuran TERBARU, DEBOUNCED 800ms -- persis pola yang sama
+    // dengan autosave tab di Workbench.kt (LaunchedEffect dibatalkan otomatis
+    // tiap windowState.position/size berubah, delay() di dalam yang jadi
+    // mekanisme debounce-nya). SENGAJA skip total saat sedang app-level
+    // fullscreen (fullscreenState.isFullscreen) -- itu bukan ukuran "asli"
+    // window, jangan sampai ke-save sebagai bounds normal.
+    if (persistedWindowId != null) {
+        LaunchedEffect(windowState.position, windowState.size, windowState.placement, fullscreenState.isFullscreen) {
+            if (fullscreenState.isFullscreen) return@LaunchedEffect
+            kotlinx.coroutines.delay(800)
+            val pos = windowState.position
+            if (pos is WindowPosition.Absolute) {
+                WindowStateStore.save(
+                    persistedWindowId,
+                    SavedWindowBounds(
+                        x = with(density) { pos.x.roundToPx() },
+                        y = with(density) { pos.y.roundToPx() },
+                        width = with(density) { windowState.size.width.roundToPx() },
+                        height = with(density) { windowState.size.height.roundToPx() },
+                        isMaximized = windowState.placement == WindowPlacement.Maximized
+                    )
+                )
+            }
+        }
+    }
 
     var savedPlacement by remember { mutableStateOf(WindowPlacement.Floating) }
     var savedPosition by remember { mutableStateOf<WindowPosition?>(null) }

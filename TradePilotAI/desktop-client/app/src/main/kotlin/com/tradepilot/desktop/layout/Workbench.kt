@@ -21,10 +21,11 @@ import com.tradepilot.desktop.browser.BrowserMenu
 import com.tradepilot.desktop.browser.BrowserTab
 import com.tradepilot.desktop.browser.BrowserTabsBar
 import com.tradepilot.desktop.browser.JCEFBrowserEngine
-import com.tradepilot.desktop.browser.JCEFBrowserView
+import com.tradepilot.desktop.browser.TabbedBrowserHost
 import com.tradepilot.desktop.components.BrowserShortcutActions
 import com.tradepilot.desktop.components.FindBar
 import com.tradepilot.desktop.components.handleBrowserShortcuts
+import com.tradepilot.desktop.components.handleBrowserShortcutsNative
 import com.tradepilot.desktop.copilot.CopilotPanel
 import com.tradepilot.desktop.explorer.BookmarkStore
 import com.tradepilot.desktop.explorer.ExplorerPanel
@@ -70,10 +71,25 @@ fun Workbench(
     onRequestExit: () -> Unit,
     isIncognito: Boolean = false,
     onOpenNewWindow: () -> Unit = {},
-    onOpenIncognitoWindow: () -> Unit = {}
+    onOpenIncognitoWindow: () -> Unit = {},
+    // Browser Session/Restore (FASE 2, lihat SessionStore.kt): kalau window
+    // ini dipulihkan dari sesi sebelumnya, tab awalnya dari sini -- kalau
+    // null (window baru/incognito), fallback ke default (1 tab Exness).
+    initialTabs: List<com.tradepilot.desktop.session.SessionTab>? = null,
+    // Dipanggil (debounced di dalam) tiap kali daftar tab window ini
+    // berubah, supaya Main.kt bisa menulis ulang session.properties gabungan
+    // SEMUA window. TIDAK dipanggil sama sekali untuk window incognito
+    // (lihat pemanggilan di bawah) -- incognito tidak pernah masuk session.
+    onTabsChanged: (List<com.tradepilot.desktop.session.SessionTab>) -> Unit = {}
 ) {
     var isCopilotVisible by remember { mutableStateOf(true) }
-    var browserEngine by remember { mutableStateOf<JCEFBrowserEngine?>(null) }
+    // FASE 2 (Multi Tab sungguhan): dulu SATU browserEngine dibagi ke semua
+    // tab (lihat TabbedBrowserHost.kt untuk penjelasan lengkap kenapa itu
+    // bukan tab sungguhan). Sekarang tiap tab punya engine sendiri di sini,
+    // `browserEngine` di bawah cuma DERIVED (yang lagi aktif) -- dipakai
+    // seadanya oleh BrowserBar/CopilotPanel/menu yang memang cuma peduli
+    // tab yang sedang dilihat user.
+    val tabEngines = remember { mutableStateMapOf<String, JCEFBrowserEngine>() }
     var gatewayConfig by remember { mutableStateOf(DesktopSettingsStore.resolve()) }
     var isSettingsOpen by remember { mutableStateOf(false) }
 
@@ -101,10 +117,13 @@ fun Workbench(
     val rootFocusRequester = remember { FocusRequester() }
 
     val tabs = remember {
-        mutableStateListOf(BrowserTab(id = "tab-0", title = "Exness", url = EXNESS_WEBTRADING_URL))
+        val restored = initialTabs?.takeIf { it.isNotEmpty() }?.mapIndexed { index, saved ->
+            BrowserTab(id = "tab-$index", title = saved.title, url = saved.url, isPinned = saved.isPinned)
+        }
+        mutableStateListOf(*(restored ?: listOf(BrowserTab(id = "tab-0", title = "Exness", url = EXNESS_WEBTRADING_URL))).toTypedArray())
     }
     var activeTabId by remember { mutableStateOf(tabs.first().id) }
-    var tabCounter by remember { mutableStateOf(1) }
+    var tabCounter by remember { mutableStateOf(tabs.size) }
     // Prioritas 10 (Ctrl+Shift+T -- reopen closed tab).
     val closedTabsStack = remember { mutableStateListOf<BrowserTab>() }
 
@@ -118,26 +137,39 @@ fun Workbench(
     // incognito/kedua (cek update sekali per PROSES aplikasi sudah cukup).
     LaunchedEffect(Unit) { if (!isIncognito) UpdateManager.checkAndDownload() }
 
-    // Sinkronkan url/title tab aktif setiap kali navigasi terjadi, DAN catat
-    // ke History (Prioritas 3) begitu URL berubah.
-    LaunchedEffect(browserEngine?.addressState, browserEngine?.titleState, activeTabId) {
-        val engine = browserEngine ?: return@LaunchedEffect
-        val index = tabs.indexOfFirst { it.id == activeTabId }
-        if (index >= 0) {
-            tabs[index] = tabs[index].copy(
-                url = engine.addressState.ifBlank { tabs[index].url },
-                title = engine.titleState.ifBlank { tabs[index].title }
-            )
-        }
-        if (engine.addressState.isNotBlank()) {
-            HistoryStore.record(engine.addressState, engine.titleState)
+    // Browser Session/Restore (FASE 2): laporkan snapshot tab ke Main.kt
+    // setiap ada perubahan berarti (buka/tutup/pindah url/pin), DEBOUNCED
+    // 500ms lewat delay() di bawah -- key LaunchedEffect berupa String hasil
+    // snapshot tabs saat ini, jadi tiap kali isinya berubah, coroutine LAMA
+    // otomatis dibatalkan (perilaku bawaan LaunchedEffect) & yang baru mulai
+    // nunggu 500ms lagi -- ini yang jadi mekanisme debounce-nya, supaya
+    // tidak menulis file tiap 1 huruf saat title masih berubah-ubah pas
+    // halaman loading. SENGAJA skip total untuk incognito (privasi).
+    if (!isIncognito) {
+        val tabsSnapshotKey = tabs.joinToString("~~") { "${it.url}||${it.title}||${it.isPinned}" }
+        LaunchedEffect(tabsSnapshotKey) {
+            kotlinx.coroutines.delay(500)
+            onTabsChanged(tabs.map { com.tradepilot.desktop.session.SessionTab(it.url, it.title, it.isPinned) })
         }
     }
 
+    // Derived -- engine milik tab yang SEDANG AKTIF (lihat catatan di atas
+    // deklarasi tabEngines). null selagi tab itu baru dibuat & JCEF belum
+    // selesai bootstrap (lihat JCEFBrowserView -- ada spinner selagi ini null).
+    val browserEngine: JCEFBrowserEngine? = tabEngines[activeTabId]
+
+    // FASE 2: dulu ada LaunchedEffect(browserEngine?.addressState, ...) di
+    // sini yang sinkron url/title HANYA untuk tab aktif (karena memang cuma
+    // ada satu engine). Sekarang sinkronisasi per-tab (termasuk tab
+    // background) dilakukan di dalam TabbedBrowserHost lewat callback
+    // `onTabNavigated` di bawah -- lihat pemanggilannya di Workspace.
+
     fun selectTab(id: String) {
-        val tab = tabs.find { it.id == id } ?: return
-        activeTabId = id
-        browserEngine?.loadUrl(tab.url)
+        // FASE 2: dulu manggil browserEngine?.loadUrl(tab.url) di sini --
+        // engine tab tujuan SUDAH punya state-nya sendiri (lihat
+        // TabbedBrowserHost.kt), jadi cukup pindah activeTabId, TIDAK ada
+        // navigasi/reload apa pun yang perlu dipicu manual lagi.
+        if (tabs.any { it.id == id }) activeTabId = id
     }
 
     fun newTab(url: String = "https://www.google.com") {
@@ -145,7 +177,9 @@ fun Workbench(
         val tab = BrowserTab(id = id, title = "New Tab", url = url)
         tabs.add(tab)
         activeTabId = id
-        browserEngine?.loadUrl(tab.url)
+        // FASE 2: TIDAK perlu browserEngine?.loadUrl(url) lagi -- tab baru
+        // otomatis mendapat JCEFBrowserEngine sendiri yang start langsung ke
+        // `url` ini (lihat startUrl di TabbedBrowserHost/JCEFBrowserView).
     }
 
     fun closeTab(id: String) {
@@ -154,11 +188,15 @@ fun Workbench(
         if (closingIndex < 0) return
         closedTabsStack.add(tabs[closingIndex])
         tabs.removeAt(closingIndex)
+        // Engine tab ini otomatis di-dispose oleh Compose (DisposableEffect
+        // bawaan JCEFBrowserView) begitu key(tab.id)-nya hilang dari
+        // composition (TabbedBrowserHost cuma me-loop `tabs`) -- baris ini
+        // cuma bersih-bersih referensi di map lokal, bukan yang men-trigger
+        // dispose sungguhan.
+        tabEngines.remove(id)
         if (activeTabId == id) {
             val fallbackIndex = closingIndex.coerceAtMost(tabs.size - 1)
-            val fallbackTab = tabs[fallbackIndex]
-            activeTabId = fallbackTab.id
-            browserEngine?.loadUrl(fallbackTab.url)
+            activeTabId = tabs[fallbackIndex].id
         }
     }
 
@@ -168,7 +206,6 @@ fun Workbench(
         val tab = reopened.copy(id = id)
         tabs.add(tab)
         activeTabId = id
-        browserEngine?.loadUrl(tab.url)
     }
 
     fun duplicateTab(id: String) {
@@ -177,7 +214,11 @@ fun Workbench(
         val index = tabs.indexOfFirst { it.id == id }
         tabs.add(index + 1, source.copy(id = newId))
         activeTabId = newId
-        browserEngine?.loadUrl(source.url)
+        // FASE 2 CATATAN JUJUR: ini "duplicate" di level URL saja (tab baru
+        // navigasi fresh ke URL yang sama) -- BUKAN clone session/history/
+        // form-state browser sungguhan seperti Ctrl+drag tab di Chrome asli.
+        // JCEF versi ini tidak expose API clone-browser untuk itu. Sama
+        // seperti perilaku sebelum FASE 2 ini, tidak ada regresi.
     }
 
     fun togglePinTab(id: String) {
@@ -199,12 +240,12 @@ fun Workbench(
     }
 
     fun reloadTab(id: String) {
-        // CATATAN JUJUR: karena satu engine dipakai bergantian (lihat
-        // BrowserTab.kt), reload tab yang SEDANG AKTIF benar-benar reload
-        // sungguhan; reload tab lain (belum aktif) hanya mungkin lewat
-        // navigasi ulang begitu tab itu dipilih -- tidak ada yang perlu
-        // dilakukan sekarang untuk tab non-aktif.
-        if (id == activeTabId) browserEngine?.reload()
+        // FASE 2: dulu HANYA tab aktif yang bisa direload sungguhan (lihat
+        // catatan jujur versi lama yang DIHAPUS di sini -- karena memang
+        // cuma ada satu engine dipakai bergantian). Sekarang SEMUA tab punya
+        // engine sendiri, jadi reload tab non-aktif pun sekarang beneran
+        // jalan -- ini perbaikan nyata, bukan cuma refactor.
+        tabEngines[id]?.reload()
     }
 
     fun reorderTabs(from: Int, to: Int) {
@@ -236,8 +277,45 @@ fun Workbench(
             goBack = { browserEngine?.goBack() },
             goForward = { browserEngine?.goForward() },
             isFullscreen = { isWorkspaceFullscreen },
-            exitFullscreen = { setWorkspaceFullscreen(false) }
+            // Permintaan eksplisit: ESC keluar dari fullscreen BROWSER (HTML5
+            // Fullscreen API -- video/chart) DAN fullscreen APLIKASI sekaligus,
+            // bukan cuma salah satu. exitPageFullscreen() aman dipanggil kapan
+            // pun (no-op kalau halaman memang tidak sedang HTML5 fullscreen).
+            exitFullscreen = {
+                setWorkspaceFullscreen(false)
+                browserEngine?.exitPageFullscreen()
+            }
         )
+    }
+
+    // Focus Management fix (lihat catatan panjang di JCEFBrowserEngine.kt &
+    // components/KeyboardShortcuts.kt/handleBrowserShortcutsNative): tanpa
+    // ini, shortcut di atas HANYA aktif selama fokus ada di chrome Compose --
+    // begitu user klik ke dalam halaman web (kondisi paling umum), semuanya
+    // diam. `onNativeKeyDown` dipasang ulang tiap kali engine ATAU
+    // shortcutActions berganti supaya closure di dalamnya selalu memegang
+    // tabs/activeTabId/dll YANG TERBARU (shortcutActions sendiri sudah
+    // di-remember dengan key yang sama di atas).
+    //
+    // `onPageFullscreenChange` (BARU): sinkronkan HTML5 fullscreen HALAMAN
+    // (video/chart TradingView, dst) dengan fullscreen APLIKASI kita --
+    // begitu halaman masuk HTML5 fullscreen, chrome aplikasi (tab bar,
+    // address bar, dst) ikut disembunyikan otomatis (persis seperti Chrome
+    // sungguhan), dan kalau halaman keluar dari fullscreen-nya sendiri
+    // (mis. video selesai, bukan lewat ESC kita), fullscreen aplikasi ikut
+    // ditutup juga -- supaya dua state ini tidak pernah nyangkut tidak
+    // sinkron satu sama lain.
+    DisposableEffect(browserEngine, shortcutActions) {
+        browserEngine?.onNativeKeyDown = { windowsKeyCode, isCtrl, isShift, isAlt ->
+            handleBrowserShortcutsNative(windowsKeyCode, isCtrl, isShift, isAlt, shortcutActions)
+        }
+        browserEngine?.onPageFullscreenChange = { isPageFullscreen ->
+            setWorkspaceFullscreen(isPageFullscreen)
+        }
+        onDispose {
+            browserEngine?.onNativeKeyDown = null
+            browserEngine?.onPageFullscreenChange = null
+        }
     }
 
     val pinnedSites = remember {
@@ -305,7 +383,22 @@ fun Workbench(
 
                 Workspace(
                     engine = browserEngine,
-                    onEngineReady = { browserEngine = it },
+                    onEngineForTab = { tabId, engine -> tabEngines[tabId] = engine },
+                    onTabNavigated = { tabId, url, title ->
+                        val index = tabs.indexOfFirst { it.id == tabId }
+                        if (index >= 0) {
+                            tabs[index] = tabs[index].copy(
+                                url = url.ifBlank { tabs[index].url },
+                                title = title.ifBlank { tabs[index].title }
+                            )
+                        }
+                        // Catat ke History (Prioritas 3) begitu URL berubah --
+                        // termasuk untuk tab background (lihat catatan di
+                        // TabbedBrowserHost.kt).
+                        if (url.isNotBlank()) {
+                            HistoryStore.record(url, title)
+                        }
+                    },
                     isIncognito = isIncognito,
                     tabs = tabs,
                     activeTabId = activeTabId,
@@ -378,7 +471,8 @@ fun Workbench(
 @Composable
 private fun Workspace(
     engine: JCEFBrowserEngine?,
-    onEngineReady: (JCEFBrowserEngine) -> Unit,
+    onEngineForTab: (tabId: String, engine: JCEFBrowserEngine) -> Unit,
+    onTabNavigated: (tabId: String, url: String, title: String) -> Unit,
     isIncognito: Boolean,
     tabs: List<BrowserTab>,
     activeTabId: String,
@@ -465,10 +559,13 @@ private fun Workspace(
             },
             browserContent = {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    JCEFBrowserView(
+                    TabbedBrowserHost(
                         modifier = Modifier.fillMaxSize(),
+                        tabs = tabs,
+                        activeTabId = activeTabId,
                         isIncognito = isIncognito,
-                        onEngineReady = onEngineReady
+                        onEngineForTab = onEngineForTab,
+                        onTabNavigated = onTabNavigated
                     )
                     if (isFindBarOpen) {
                         Box(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {

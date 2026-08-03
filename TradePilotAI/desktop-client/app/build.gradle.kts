@@ -23,6 +23,14 @@ dependencies {
     // Fase 5: Browser Engine (JCEF) -- lihat browser/JCEFBootstrap.kt untuk
     // catatan penting soal native binary & first-run download.
     implementation(libs.jcefmaven)
+
+    // Browser Testing (item terakhir FASE 1 -- lihat docs/TESTING.md untuk
+    // cakupan & batasannya): JUnit4, pola sama seperti :shared/commonTest
+    // (lihat UseCasesTest.kt) supaya konsisten satu project. Cuma bisa
+    // menguji fungsi PURE yang tidak butuh CefBrowser native sungguhan
+    // (normalizeUrl, pemetaan shortcut keyboard) -- apa pun yang butuh JCEF
+    // native ter-load TIDAK bisa di-unit-test dengan cara ini.
+    testImplementation("junit:junit:4.13.2")
 }
 
 kotlin {

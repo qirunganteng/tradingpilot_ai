@@ -18,19 +18,20 @@ data class BookmarkEntry(
 )
 
 /**
- * CATATAN JUJUR (Prioritas 3 - Downloads): paket file ini TIDAK menyertakan
- * implementasi CefDownloadHandler (butuh perubahan di JCEFBootstrap.kt /
- * JCEFBrowserEngine.kt untuk daftar ke CefClient.addDownloadHandler, plus
- * penyimpanan progress per-file). Model ini disiapkan supaya panel Downloads
- * SUDAH punya bentuk UI yang benar sekarang, dan tinggal disambungkan ke
- * data asli begitu handler-nya dibuat -- lihat catatan lebih lengkap di
- * Explorer/ExplorerPanel.kt bagian DownloadsList.
+ * Prioritas 3 -> FASE 3 (Download Manager): SEBELUMNYA paket file ini
+ * secara SENGAJA tidak menyertakan CefDownloadHandler (dicatat jujur di
+ * sini) -- sekarang sudah disambungkan (lihat JCEFBrowserEngine.kt +
+ * DownloadStore.kt). `id` dipakai untuk mencocokkan update progress dari
+ * `CefDownloadItem.getId()` ke entry yang tepat di [DownloadStore].
  */
 data class DownloadEntry(
+    val id: Int,
     val fileName: String,
     val url: String,
+    val fullPath: String,
     val progressPercent: Int,
-    val isComplete: Boolean
+    val isComplete: Boolean,
+    val isCanceled: Boolean = false
 )
 
 /** Shortcut situs yang dipin user supaya gampang diakses ulang (Prioritas 3). */

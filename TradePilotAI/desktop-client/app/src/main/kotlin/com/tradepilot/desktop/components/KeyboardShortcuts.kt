@@ -70,3 +70,44 @@ fun handleBrowserShortcuts(event: KeyEvent, actions: BrowserShortcutActions): Bo
 /** Sugar supaya pemanggilan di Workbench ringkas: `Modifier.browserShortcuts(actions)`. */
 fun Modifier.browserShortcuts(actions: BrowserShortcutActions): Modifier =
     this.onPreviewKeyEvent { handleBrowserShortcuts(it, actions) }
+
+/**
+ * Varian raw Windows-VK-code dari [handleBrowserShortcuts], dipakai dari
+ * [com.tradepilot.desktop.browser.JCEFBrowserEngine.onNativeKeyDown] --
+ * lihat catatan panjang di JCEFBrowserEngine.kt soal kenapa varian ini
+ * perlu ada sama sekali (Focus Management, fokus di komponen browser
+ * native tidak pernah sampai ke Compose).
+ *
+ * SENGAJA dijaga 1:1 dengan `handleBrowserShortcuts` di atas (kombinasi
+ * tombol yang sama, urutan pengecekan yang sama) -- kalau nambah shortcut
+ * baru di salah satu, cerminkan juga ke yang satunya, supaya perilaku app
+ * konsisten mau fokus lagi di Compose atau di dalam halaman web.
+ * `java.awt.event.KeyEvent.VK_*` dipakai sebagai kode referensi karena
+ * nilainya identik dengan Windows virtual-key code yang dikirim CEF lewat
+ * `windows_key_code` untuk huruf/tombol umum -- bukan kebetulan, memang
+ * dirancang selaras oleh AWT.
+ */
+fun handleBrowserShortcutsNative(
+    windowsKeyCode: Int,
+    isCtrl: Boolean,
+    isShift: Boolean,
+    isAlt: Boolean,
+    actions: BrowserShortcutActions
+): Boolean {
+    return when {
+        windowsKeyCode == java.awt.event.KeyEvent.VK_ESCAPE && actions.isFullscreen() -> { actions.exitFullscreen(); true }
+        isCtrl && isShift && windowsKeyCode == java.awt.event.KeyEvent.VK_T -> { actions.reopenClosedTab(); true }
+        isCtrl && windowsKeyCode == java.awt.event.KeyEvent.VK_T -> { actions.newTab(); true }
+        isCtrl && windowsKeyCode == java.awt.event.KeyEvent.VK_W -> { actions.closeTab(); true }
+        isCtrl && windowsKeyCode == java.awt.event.KeyEvent.VK_TAB -> { actions.nextTab(); true }
+        isCtrl && windowsKeyCode == java.awt.event.KeyEvent.VK_L -> { actions.focusAddressBar(); true }
+        isCtrl && windowsKeyCode == java.awt.event.KeyEvent.VK_R -> { actions.reload(); true }
+        isCtrl && windowsKeyCode == java.awt.event.KeyEvent.VK_F -> { actions.openFind(); true }
+        isCtrl && windowsKeyCode == java.awt.event.KeyEvent.VK_D -> { actions.toggleBookmark(); true }
+        windowsKeyCode == java.awt.event.KeyEvent.VK_F5 -> { actions.reload(); true }
+        windowsKeyCode == java.awt.event.KeyEvent.VK_F11 -> { actions.toggleFullscreen(); true }
+        isAlt && windowsKeyCode == java.awt.event.KeyEvent.VK_LEFT -> { actions.goBack(); true }
+        isAlt && windowsKeyCode == java.awt.event.KeyEvent.VK_RIGHT -> { actions.goForward(); true }
+        else -> false
+    }
+}

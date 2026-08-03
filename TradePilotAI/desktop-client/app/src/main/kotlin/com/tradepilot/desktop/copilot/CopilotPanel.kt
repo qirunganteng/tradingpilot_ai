@@ -3,8 +3,6 @@ package com.tradepilot.desktop.copilot
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CandlestickChart
@@ -13,15 +11,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.tradepilot.data.gateway.HttpAIRepository
 import com.tradepilot.data.gateway.HttpRiskGatewayRepository
 import com.tradepilot.desktop.browser.JCEFBrowserEngine
-import com.tradepilot.desktop.theme.AppColors
-import com.tradepilot.desktop.theme.Dimens
 import com.tradepilot.domain.config.GatewayConfig
 import com.tradepilot.domain.model.AnalysisResult
 import com.tradepilot.domain.model.RiskRecommendation
@@ -30,38 +24,23 @@ import com.tradepilot.domain.repository.AIRepository
 import com.tradepilot.domain.repository.RiskGatewayRepository
 import com.tradepilot.domain.usecase.CalculateRiskUseCase
 import com.tradepilot.domain.usecase.DeriveCopilotSignalUseCase
+import com.tradepilot.desktop.theme.Dimens
 import kotlinx.coroutines.launch
+
+private enum class CopilotTab(val label: String) {
+    RISK("Risk Calc"),
+    CHART("Chart"),
+    JOURNAL("Journal")
+}
 
 /**
  * Panel AI Copilot ala VS Code (dock kanan, bisa ditoggle dari ActivityBar).
  *
- * FIX BUG #5 ("hasil hitung risk muncul tapi tertutup box hasil lokal"):
- * root cause-nya SnackbarHost dulu ditaruh manual di dalam Box yang sama
- * dengan konten (tanpa reserved space), jadi begitu gatewayError memicu
- * Snackbar, Snackbar itu MELAYANG DI ATAS ResultCard "Hasil lokal (instant
- * preview)" -- benar-benar menutupinya secara visual, bukan cuma soal
- * scroll. Fix: pakai [Scaffold] (pola resmi Material3 untuk kombinasi
- * konten + Snackbar) -- Scaffold otomatis kasih `paddingValues` ke konten
- * supaya Snackbar dapat ruang sendiri di bawah, TIDAK menimpa apa pun.
- *
- * FIX BUG #7 ("kolom Balance/Risk/Entry/SL/TP belum diperkecil"): root
- * cause-nya [RiskField] lama pakai `OutlinedTextField` M3 dengan
- * `.heightIn(min = 32.dp)` -- itu cuma nge-set BATAS BAWAH, OutlinedTextField
- * tetap render di tinggi natural M3-nya (~56dp) karena tidak ada modifier
- * yang benar-benar MEMAKSA turun ke situ. Ini PERSIS kelas bug yang sama
- * yang sudah pernah diperbaiki di address bar (lihat catatan panjang di
- * AddressBar.kt) -- solusinya sama: ganti ke [BasicTextField] custom yang
- * tingginya benar-benar dipaksa `Dimens.AI_PANEL_FIELD_HEIGHT_DP` (32dp),
- * bukan OutlinedTextField bawaan M3.
- *
- * Soal bug #6 ("hasil Analisa Chart belum ada"): alur kodenya (screenshot ->
- * upload ke AI Gateway -> tampilkan AnalysisResult) sudah lengkap tersambung
- * di bawah -- kemungkinan besar penyebabnya SAMA dengan #5 (ketutupan
- * Snackbar/di luar area scroll yang kelihatan), yang sudah diperbaiki lewat
- * Scaffold di atas. Kalau setelah fix ini hasil TETAP tidak muncul, itu
- * kemungkinan besar respons dari AI Gateway sendiri (jaringan/token/response
- * gagal) -- bagian itu di luar modul UI dan saya tidak menyentuhnya sesuai
- * batasan "jangan ubah backend/business logic".
+ * Sekarang dipecah jadi 3 tab (Risk Calculator / Chart Analysis / Journal)
+ * -- dulu semuanya ditumpuk vertikal dalam satu scroll panjang, bikin
+ * "Analisa Chart" harus discroll jauh ke bawah dari "Hitung Risk". Tab
+ * struktur ini juga jadi dasar buat nambah tab AI Workspace lain ke depannya
+ * (News, Economic Calendar, dst) tanpa bikin satu Column raksasa lagi.
  */
 @Composable
 fun CopilotPanel(
@@ -69,9 +48,43 @@ fun CopilotPanel(
     gatewayConfig: GatewayConfig,
     modifier: Modifier = Modifier
 ) {
+    var activeTab by remember { mutableStateOf(CopilotTab.RISK) }
+
+    Column(modifier = modifier.fillMaxHeight()) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 12.dp, end = 12.dp)) {
+            Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("AI Copilot", style = MaterialTheme.typography.titleSmall)
+        }
+        Spacer(Modifier.height(8.dp))
+
+        TabRow(
+            selectedTabIndex = activeTab.ordinal,
+            containerColor = Color(0xFF1F1F1F),
+            contentColor = Color(0xFF4FC3F7),
+            divider = { HorizontalDivider(color = Color(0xFF3A3A3A)) }
+        ) {
+            CopilotTab.entries.forEach { tab ->
+                Tab(
+                    selected = activeTab == tab,
+                    onClick = { activeTab = tab },
+                    text = { Text(tab.label, style = MaterialTheme.typography.labelSmall) }
+                )
+            }
+        }
+
+        when (activeTab) {
+            CopilotTab.RISK -> RiskCalculatorTab(gatewayConfig, modifier = Modifier.weight(1f))
+            CopilotTab.CHART -> ChartAnalysisTab(engine, gatewayConfig, modifier = Modifier.weight(1f))
+            CopilotTab.JOURNAL -> TradingJournalPanel(modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun RiskCalculatorTab(gatewayConfig: GatewayConfig, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val gateway: RiskGatewayRepository = remember(gatewayConfig) { HttpRiskGatewayRepository(gatewayConfig) }
-    val aiRepository: AIRepository = remember(gatewayConfig) { HttpAIRepository(gatewayConfig) }
     val localUseCase = remember { CalculateRiskUseCase() }
 
     var balance by remember { mutableStateOf("1000") }
@@ -85,11 +98,9 @@ fun CopilotPanel(
     var gatewayError by remember { mutableStateOf<String?>(null) }
     var isCalling by remember { mutableStateOf(false) }
 
-    var analysisResult by remember { mutableStateOf<AnalysisResult?>(null) }
-    var analysisError by remember { mutableStateOf<String?>(null) }
-    var isAnalyzing by remember { mutableStateOf(false) }
-
-    // Prioritas 7: "Jika Gateway gagal = tampilkan Snackbar".
+    // FIX BUG #5 ("hasil hitung risk muncul tapi tertutup box hasil lokal"):
+    // Scaffold + SnackbarHost (pola resmi M3) supaya error gateway TIDAK
+    // melayang di atas ResultCard.
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(gatewayError) {
         gatewayError?.let { snackbarHostState.showSnackbar(message = it, withDismissAction = true) }
@@ -108,36 +119,24 @@ fun CopilotPanel(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier.fillMaxWidth(),
         containerColor = Color(0xFF1F1F1F),
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { scaffoldPadding ->
         Column(
             modifier = Modifier
-                .fillMaxHeight()
+                .fillMaxSize()
                 .padding(scaffoldPadding)
                 .padding(12.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("AI Copilot", style = MaterialTheme.typography.titleSmall)
-            }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "Risk Calculator — terhubung ke AI Gateway",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
-
-            Spacer(Modifier.height(Dimens.AI_PANEL_VERTICAL_SPACING_DP.dp))
-
-            RiskField("Balance (USD)", balance) { balance = it }
-            RiskField("Risk %", riskPercent) { riskPercent = it }
-            RiskField("Entry", entryPrice) { entryPrice = it }
-            RiskField("Stop Loss", stopLossPrice) { stopLossPrice = it }
-            RiskField("Take Profit", takeProfitPrice) { takeProfitPrice = it }
+            // FIX BUG #7: field genuinely compact (BasicTextField, bukan
+            // OutlinedTextField M3 yang tidak bisa dipaksa kecil).
+            CompactField("Balance (USD)", balance) { balance = it }
+            CompactField("Risk %", riskPercent) { riskPercent = it }
+            CompactField("Entry", entryPrice) { entryPrice = it }
+            CompactField("Stop Loss", stopLossPrice) { stopLossPrice = it }
+            CompactField("Take Profit", takeProfitPrice) { takeProfitPrice = it }
 
             Spacer(Modifier.height(Dimens.AI_PANEL_VERTICAL_SPACING_DP.dp))
 
@@ -152,7 +151,6 @@ fun CopilotPanel(
                         return@Button
                     }
 
-                    // Instant local preview (optimistic UI) -- lihat catatan kelas.
                     localResult = localUseCase.invoke(
                         balance = inputs.balance,
                         riskPercent = inputs.riskPercent,
@@ -209,92 +207,89 @@ fun CopilotPanel(
                 Spacer(Modifier.height(8.dp))
                 ResultCard(title = "Hasil gateway (sumber kebenaran)", result = it, accent = Color(0xFF4FC3F7))
             }
+        }
+    }
+}
 
-            // CATATAN: pesan error gateway sekarang HANYA lewat Snackbar
-            // (LaunchedEffect di atas), dan Snackbar-nya sudah dapat ruang
-            // sendiri dari Scaffold (fix bug #5) -- tidak lagi menutupi
-            // ResultCard di atas.
+@Composable
+private fun ChartAnalysisTab(engine: JCEFBrowserEngine?, gatewayConfig: GatewayConfig, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    val aiRepository: AIRepository = remember(gatewayConfig) { HttpAIRepository(gatewayConfig) }
 
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider(color = Color(0xFF3A3A3A))
+    var analysisResult by remember { mutableStateOf<AnalysisResult?>(null) }
+    var analysisError by remember { mutableStateOf<String?>(null) }
+    var isAnalyzing by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1F1F1F))
+            .padding(12.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.CandlestickChart, contentDescription = null, tint = Color(0xFFBA68C8), modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Analisa Chart", style = MaterialTheme.typography.labelMedium)
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "Screenshot browser saat ini -> kirim ke AI Gateway (Gemini vision) " +
+                "-> hasil analisa ICT/SMC. Pastikan window ini terlihat penuh & " +
+                "tidak ketutupan window lain saat menekan tombol -- capture-nya " +
+                "screen area sungguhan, bukan render langsung dari browser.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+        Spacer(Modifier.height(6.dp))
+
+        Button(
+            modifier = Modifier.fillMaxWidth().height(Dimens.AI_PANEL_BUTTON_HEIGHT_DP.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            enabled = !isAnalyzing && engine != null,
+            onClick = {
+                val component = engine?.uiComponent ?: return@Button
+                analysisError = null
+                isAnalyzing = true
+
+                val captureResult = DesktopChartCapture.captureCompressed(component)
+                captureResult.onFailure {
+                    analysisError = it.message ?: "Gagal ambil screenshot."
+                    isAnalyzing = false
+                }
+
+                captureResult.onSuccess { imageBytes ->
+                    scope.launch {
+                        aiRepository.analyzeChart(imageBytes, methods = emptyList())
+                            .onSuccess {
+                                analysisResult = it
+                                isAnalyzing = false
+                            }
+                            .onFailure {
+                                analysisError = it.message ?: "Gagal menghubungi AI Gateway."
+                                isAnalyzing = false
+                            }
+                    }
+                }
+            }
+        ) {
+            if (isAnalyzing) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                when {
+                    engine == null -> "Browser belum siap"
+                    isAnalyzing -> "Menganalisa chart..."
+                    else -> "Analisa Chart Sekarang"
+                },
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+
+        analysisResult?.let { result ->
             Spacer(Modifier.height(10.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.CandlestickChart, contentDescription = null, tint = Color(0xFFBA68C8), modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Analisa Chart (Fase 7)", style = MaterialTheme.typography.labelMedium)
-            }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "Screenshot browser saat ini -> kirim ke AI Gateway (Gemini vision) " +
-                    "-> hasil analisa ICT/SMC. Pastikan window ini terlihat penuh & " +
-                    "tidak ketutupan window lain saat menekan tombol -- capture-nya " +
-                    "screen area sungguhan, bukan render langsung dari browser.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
-            Spacer(Modifier.height(6.dp))
-
-            Button(
-                modifier = Modifier.fillMaxWidth().height(Dimens.AI_PANEL_BUTTON_HEIGHT_DP.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                enabled = !isAnalyzing && engine != null,
-                onClick = {
-                    val component = engine?.uiComponent ?: return@Button
-                    analysisError = null
-                    isAnalyzing = true
-
-                    val captureResult = DesktopChartCapture.captureCompressed(component)
-                    captureResult.onFailure {
-                        analysisError = it.message ?: "Gagal ambil screenshot."
-                        isAnalyzing = false
-                    }
-
-                    captureResult.onSuccess { imageBytes ->
-                        scope.launch {
-                            aiRepository.analyzeChart(imageBytes, methods = emptyList())
-                                .onSuccess {
-                                    analysisResult = it
-                                    isAnalyzing = false
-                                }
-                                .onFailure {
-                                    analysisError = it.message ?: "Gagal menghubungi AI Gateway."
-                                    isAnalyzing = false
-                                }
-                        }
-                    }
-                }
-            ) {
-                if (isAnalyzing) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    when {
-                        engine == null -> "Browser belum siap"
-                        isAnalyzing -> "Menganalisa chart..."
-                        else -> "Analisa Chart Sekarang"
-                    },
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-
-            // Prioritas 8: "Jika gagal = buat Error Dialog" -- AlertDialog
-            // modal di bawah (bukan lagi Text inline), analysisError tetap
-            // jadi sumber datanya, cuma cara tampilnya yang berubah.
-
-            analysisResult?.let { result ->
-                Spacer(Modifier.height(10.dp))
-                AnalysisResultCard(result)
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Chat AI bebas teks (percakapan multi-turn) belum ada -- ini tombol " +
-                    "analisa terstruktur satu-arah dulu (screenshot -> hasil).",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray
-            )
+            AnalysisResultCard(result)
         }
     }
 
@@ -317,40 +312,6 @@ private data class RiskInputs(
     val sl: Double,
     val tp: Double
 )
-
-/**
- * FIX BUG #7: pengganti `OutlinedTextField` + `.heightIn(min=...)` (yang
- * TIDAK benar-benar mengecilkan tinggi field, lihat catatan panjang di atas
- * class CopilotPanel) -- pola sama persis seperti AddressBar.kt: BasicTextField
- * custom dengan tinggi yang BENAR-BENAR dipaksa Dimens.AI_PANEL_FIELD_HEIGHT_DP
- * (32dp), label kecil di atas field (bukan floating label M3 yang makan
- * tinggi ekstra).
- */
-@Composable
-private fun RiskField(label: String, value: String, onChange: (String) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = AppColors.TextSecondary)
-        Spacer(Modifier.height(2.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(Dimens.AI_PANEL_FIELD_HEIGHT_DP.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(AppColors.SurfaceSunken)
-                .padding(horizontal = 10.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onChange,
-                singleLine = true,
-                textStyle = LocalTextStyle.current.copy(color = AppColors.TextPrimary, fontSize = MaterialTheme.typography.bodySmall.fontSize),
-                cursorBrush = SolidColor(AppColors.Accent),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
 
 @Composable
 private fun AnalysisResultCard(result: AnalysisResult) {
