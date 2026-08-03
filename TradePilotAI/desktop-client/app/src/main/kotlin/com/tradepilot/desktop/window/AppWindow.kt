@@ -2,6 +2,7 @@ package com.tradepilot.desktop.window
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,7 +17,6 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.ApplicationScope
-import java.awt.GraphicsEnvironment
 
 /**
  * Prioritas 1: hapus title bar putih bawaan Windows/JVM.
@@ -92,56 +92,6 @@ fun ApplicationScope.AppWindow(
     val fullscreenState = remember { AppFullscreenState() }
     val density = LocalDensity.current
 
-    // Simpan posisi/ukuran TERBARU, DEBOUNCED 800ms -- persis pola yang sama
-    // dengan autosave tab di Workbench.kt (LaunchedEffect dibatalkan otomatis
-    // tiap windowState.position/size berubah, delay() di dalam yang jadi
-    // mekanisme debounce-nya). SENGAJA skip total saat sedang app-level
-    // fullscreen (fullscreenState.isFullscreen) -- itu bukan ukuran "asli"
-    // window, jangan sampai ke-save sebagai bounds normal.
-    if (persistedWindowId != null) {
-        LaunchedEffect(windowState.position, windowState.size, windowState.placement, fullscreenState.isFullscreen) {
-            if (fullscreenState.isFullscreen) return@LaunchedEffect
-            kotlinx.coroutines.delay(800)
-            val pos = windowState.position
-            if (pos is WindowPosition.Absolute) {
-                WindowStateStore.save(
-                    persistedWindowId,
-                    SavedWindowBounds(
-                        x = with(density) { pos.x.roundToPx() },
-                        y = with(density) { pos.y.roundToPx() },
-                        width = with(density) { windowState.size.width.roundToPx() },
-                        height = with(density) { windowState.size.height.roundToPx() },
-                        isMaximized = windowState.placement == WindowPlacement.Maximized
-                    )
-                )
-            }
-        }
-    }
-
-    var savedPlacement by remember { mutableStateOf(WindowPlacement.Floating) }
-    var savedPosition by remember { mutableStateOf<WindowPosition?>(null) }
-    var savedSize by remember { mutableStateOf<DpSize?>(null) }
-
-    LaunchedEffect(fullscreenState.isFullscreen) {
-        if (fullscreenState.isFullscreen) {
-            savedPlacement = windowState.placement
-            savedPosition = windowState.position
-            savedSize = windowState.size
-
-            val screenBounds = GraphicsEnvironment.getLocalGraphicsEnvironment()
-                .defaultScreenDevice.defaultConfiguration.bounds
-            windowState.placement = WindowPlacement.Floating
-            with(density) {
-                windowState.position = WindowPosition(screenBounds.x.toDp(), screenBounds.y.toDp())
-                windowState.size = DpSize(screenBounds.width.toDp(), screenBounds.height.toDp())
-            }
-        } else {
-            savedSize?.let { windowState.size = it }
-            savedPosition?.let { windowState.position = it }
-            windowState.placement = savedPlacement
-        }
-    }
-
     Window(
         onCloseRequest = onRequestExit,
         state = windowState,
@@ -153,6 +103,114 @@ fun ApplicationScope.AppWindow(
         // background custom sendiri di root Composable (lihat Main.kt Workbench).
         transparent = false
     ) {
+        // Simpan posisi/ukuran TERBARU, DEBOUNCED 800ms -- persis pola yang sama
+        // dengan autosave tab di Workbench.kt. SENGAJA skip total saat sedang
+        // app-level fullscreen -- itu bukan ukuran "asli" window.
+        if (persistedWindowId != null) {
+            LaunchedEffect(windowState.position, windowState.size, windowState.placement, fullscreenState.isFullscreen) {
+                if (fullscreenState.isFullscreen) return@LaunchedEffect
+                kotlinx.coroutines.delay(800)
+                val pos = windowState.position
+                if (pos is WindowPosition.Absolute) {
+                    WindowStateStore.save(
+                        persistedWindowId,
+                        SavedWindowBounds(
+                            x = with(density) { pos.x.roundToPx() },
+                            y = with(density) { pos.y.roundToPx() },
+                            width = with(density) { windowState.size.width.roundToPx() },
+                            height = with(density) { windowState.size.height.roundToPx() },
+                            isMaximized = windowState.placement == WindowPlacement.Maximized
+                        )
+                    )
+                }
+            }
+        }
+
+        var savedPlacement by remember { mutableStateOf(WindowPlacement.Floating) }
+        var savedPosition by remember { mutableStateOf<WindowPosition?>(null) }
+        var savedSize by remember { mutableStateOf<DpSize?>(null) }
+
+        // BUG BARU FIX ("fullscreen jadi window kecil + wallpaper kelihatan di
+        // pinggir, tidak menutup layar penuh"): root cause-nya bounds layar
+        // SEBELUMNYA diambil dari `GraphicsEnvironment...defaultScreenDevice`
+        // (SELALU monitor PERTAMA di sistem, apa pun monitor tempat window
+        // user SEBENARNYA berada -- salah total di setup multi-monitor) DAN
+        // dikonversi ke Dp pakai `LocalDensity` yang diambil di LUAR scope
+        // `Window{}` (belum tentu cocok dengan skala DPI monitor window ini).
+        // Fix: pakai `window.graphicsConfiguration` -- ini SELALU merujuk ke
+        // monitor tempat window INI SEDANG berada (benar di multi-monitor),
+        // dan bagi dengan `defaultTransform.scaleX/scaleY` milik konfigurasi
+        // itu SENDIRI (skala DPI FISIK monitor itu, bukan asumsi density
+        // Compose) supaya hasilnya presisi px fisik -> dp tanpa mismatch.
+        LaunchedEffect(fullscreenState.isFullscreen) {
+            if (fullscreenState.isFullscreen) {
+                savedPlacement = windowState.placement
+                savedPosition = windowState.position
+                savedSize = windowState.size
+
+                val config = window.graphicsConfiguration
+                val bounds = config.bounds
+                val scaleX = config.defaultTransform.scaleX
+                val scaleY = config.defaultTransform.scaleY
+                windowState.placement = WindowPlacement.Floating
+                windowState.position = WindowPosition((bounds.x / scaleX).dp, (bounds.y / scaleY).dp)
+                windowState.size = DpSize((bounds.width / scaleX).dp, (bounds.height / scaleY).dp)
+            } else {
+                savedSize?.let { windowState.size = it }
+                savedPosition?.let { windowState.position = it }
+                windowState.placement = savedPlacement
+            }
+        }
+
+        // BUG FIX ("ESC belum berfungsi baik di fullscreen browser maupun
+        // fullscreen aplikasi"): `onPreviewKeyEvent` Compose biasa (dipasang
+        // di Workbench.kt) HANYA menangkap key event kalau fokus SEDANG ada
+        // di sisi Compose. Begitu JCEFBrowserView (SwingPanel, komponen
+        // AWT/Swing HEAVYWEIGHT asli) yang punya fokus native OS -- yang
+        // SELALU terjadi begitu user klik di area halaman web manapun --
+        // key event tidak pernah sampai ke Compose sama sekali. Ini akar
+        // masalah yang SAMA PERSIS dengan bug DropdownMenu/SwingPanel
+        // sebelumnya (lihat BrowserMenu.kt), cuma manifestasinya di keyboard,
+        // bukan mouse/klik.
+        //
+        // Fix: `KeyEventDispatcher` didaftarkan ke `KeyboardFocusManager`
+        // GLOBAL milik JVM (bukan per-Compose-tree) -- ini titik SATU-SATUNYA
+        // yang menerima SEMUA key event native di seluruh aplikasi, apa pun
+        // komponen (Swing atau Compose/Skia) yang sedang fokus. Karena
+        // dispatcher ini GLOBAL (dibagi semua window kalau app punya banyak
+        // window terbuka -- Fase 2), WAJIB dicek `e.component` ada di window
+        // INI (`SwingUtilities.getWindowAncestor`) sebelum bertindak, supaya
+        // ESC di window A tidak keliru meng-exit-fullscreen-kan window B.
+        DisposableEffect(Unit) {
+            val dispatcher = java.awt.KeyEventDispatcher { e ->
+                if (e.id != java.awt.event.KeyEvent.KEY_PRESSED) return@KeyEventDispatcher false
+                val eventWindow = javax.swing.SwingUtilities.getWindowAncestor(e.component)
+                if (eventWindow !== window) return@KeyEventDispatcher false
+                when (e.keyCode) {
+                    java.awt.event.KeyEvent.VK_ESCAPE -> {
+                        if (fullscreenState.isFullscreen) fullscreenState.isFullscreen = false
+                        // SENGAJA return false (TIDAK di-consume): kalau ada
+                        // HTML5 fullscreen (video/chart) yang AKTIF BARENGAN
+                        // dengan fullscreen aplikasi, ESC ini juga harus tetap
+                        // diteruskan ke CEF supaya browser-nya sendiri bisa
+                        // exit HTML5-fullscreen-nya secara independen -- kalau
+                        // di-consume di sini, event itu TIDAK PERNAH sampai ke
+                        // CEF sama sekali.
+                        false
+                    }
+                    java.awt.event.KeyEvent.VK_F11 -> {
+                        fullscreenState.isFullscreen = !fullscreenState.isFullscreen
+                        true // F11 murni shortcut aplikasi, aman di-consume
+                    }
+                    else -> false
+                }
+            }
+            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher)
+            onDispose {
+                java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher)
+            }
+        }
+
         CompositionLocalProvider(
             LocalAppFullscreenState provides fullscreenState,
             LocalAppWindowState provides windowState

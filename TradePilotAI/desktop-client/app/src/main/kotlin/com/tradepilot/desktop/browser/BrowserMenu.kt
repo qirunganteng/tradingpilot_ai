@@ -93,9 +93,34 @@ fun BrowserMenu(
 ) {
     if (!expanded) return
 
+    // Bug #3 fix ("menu muncul di pojok layar, bukan di dekat window app"):
+    // WindowPosition.Aligned(TopEnd) SEBELUMNYA align ke LAYAR, bukan ke
+    // window aplikasi -- kalau window app user sedang tidak di pojok
+    // kanan-atas layar (kasus paling umum), menu nongol jauh dari window,
+    // kelihatan seperti window terpisah yang tidak nyambung/nge-freeze.
+    // Sekarang dihitung relatif ke posisi+ukuran window App SESUNGGUHNYA
+    // (lewat LocalAppWindowState, sudah ada dari fix fullscreen sebelumnya) --
+    // fallback ke Aligned(TopEnd) HANYA kalau posisi window belum diketahui
+    // sama sekali (WindowPosition.PlatformDefault, belum di-assign OS).
+    val parentWindowState = com.tradepilot.desktop.window.LocalAppWindowState.current
+    val menuWidth = 260.dp
+    val menuHeight = 560.dp
+    val dialogPosition = run {
+        val parentPos = parentWindowState?.position
+        if (parentPos is WindowPosition.Absolute) {
+            val parentSize = parentWindowState.size
+            WindowPosition(
+                x = parentPos.x + parentSize.width - menuWidth - 12.dp,
+                y = parentPos.y + 56.dp
+            )
+        } else {
+            WindowPosition.Aligned(Alignment.TopEnd)
+        }
+    }
+
     val dialogState = rememberDialogState(
-        position = WindowPosition.Aligned(Alignment.TopEnd),
-        size = DpSize(260.dp, 560.dp)
+        position = dialogPosition,
+        size = DpSize(menuWidth, menuHeight)
     )
 
     DialogWindow(
