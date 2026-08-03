@@ -179,17 +179,18 @@ class JCEFBrowserEngine(
      * tidak dikenalnya. Return true = batalkan navigasi INI (sudah
      * ditangani di luar), false = lanjutkan seperti biasa.
      *
-     * `onCertificateError` (Browser Security): CATATAN JUJUR -- signature
-     * method ini BELUM sempat diverifikasi lewat `jar tf`/`javap` terhadap
-     * jar JCEF proyek ini (beda dengan Download/Dialog Handler di atas yang
-     * sudah diverifikasi eksplisit) -- kalau versi JCEF kamu beda dan build
-     * gagal tepat di method ini, hapus dulu override ini sampai signature-nya
-     * dicocokkan manual. Perilakunya SENGAJA menolak (return false = pakai
-     * default handling CEF, yang secara umum memblokir/gagal-aman untuk
-     * sertifikat tidak valid) -- untuk app trading yang menyentuh URL
-     * finansial, diam-diam MENERIMA sertifikat tidak valid adalah risiko
-     * keamanan nyata, jauh lebih baik gagal terang-terangan (muncul di Error
-     * Page yang sudah ada) daripada bypass diam-diam.
+     * `onCertificateError` (Browser Security) -- DIHAPUS/DIBATALKAN: sempat
+     * ditambahkan tapi GAGAL BUILD ("onCertificateError overrides nothing" +
+     * "Unresolved reference 'CefSSLInfo'") -- artinya baik nama class
+     * `org.cef.network.CefSSLInfo` maupun signature method yang saya tebak
+     * TIDAK cocok dengan JCEF versi yang benar-benar dipakai proyek ini
+     * (persis risiko yang sudah diperingatkan sebelumnya: method ini beda
+     * dengan Download/Dialog Handler yang sempat diverifikasi `jar tf`/
+     * `javap` langsung terhadap jar-nya). Daripada menebak lagi tanpa akses
+     * ke jar sungguhan, ini SENGAJA tidak diimplementasikan -- kalau
+     * dibutuhkan, perlu dikerjakan dari lingkungan yang bisa `javap` kelas
+     * `org.cef.handler.CefRequestHandler` di jar JCEF proyek ini langsung
+     * untuk dapat signature yang benar-benar cocok.
      */
     init {
         cefClient.addRequestHandler(object : org.cef.handler.CefRequestHandlerAdapter() {
@@ -229,24 +230,6 @@ class JCEFBrowserEngine(
                     println("[JCEFBrowserEngine] Gagal buka external link '$url' via OS: ${t.message}")
                 }
                 return true // batalkan navigasi internal -- sudah/coba ditangani via OS di atas
-            }
-
-            override fun onCertificateError(
-                browser: CefBrowser?,
-                cert_error: org.cef.handler.CefLoadHandler.ErrorCode?,
-                request_url: String?,
-                sslInfo: org.cef.network.CefSSLInfo?,
-                callback: org.cef.callback.CefCallback?
-            ): Boolean {
-                if (browser !== this@JCEFBrowserEngine.browser) return false
-                println("[JCEFBrowserEngine] Sertifikat tidak valid untuk $request_url (${cert_error?.name}) -- ditolak.")
-                try {
-                    callback?.cancel()
-                } catch (t: Throwable) {
-                    // no-op -- return false di bawah tetap jadi jaring pengaman
-                    // (default handling CEF untuk cert error umumnya juga blokir).
-                }
-                return false
             }
         })
     }
@@ -502,13 +485,20 @@ class JCEFBrowserEngine(
      */
     init {
         cefClient.addDownloadHandler(object : org.cef.handler.CefDownloadHandlerAdapter() {
+            // CATATAN: build gagal sebelumnya karena method ini di versi JCEF
+            // proyek ini (jcefmaven) ternyata return Boolean, BEDA dari
+            // dokumentasi JCEF upstream (JetBrains/jcef master) yang bilang
+            // void -- konfirmasi ini datang LANGSUNG dari pesan error compiler
+            // Gradle, sumber paling akurat yang ada. `true` di semua jalur di
+            // bawah = "sudah saya tangani sendiri" (konsisten dengan pola
+            // return Boolean di onBeforeBrowse/onBeforePopup pada file ini).
             override fun onBeforeDownload(
                 browser: CefBrowser?,
                 downloadItem: org.cef.callback.CefDownloadItem?,
                 suggestedName: String?,
                 callback: org.cef.callback.CefBeforeDownloadCallback?
-            ) {
-                if (browser !== this@JCEFBrowserEngine.browser || downloadItem == null || callback == null) return
+            ): Boolean {
+                if (browser !== this@JCEFBrowserEngine.browser || downloadItem == null || callback == null) return true
                 try {
                     val downloadsDir = java.io.File(System.getProperty("user.home"), "Downloads").apply { mkdirs() }
                     val rawName = suggestedName?.takeIf { it.isNotBlank() } ?: "unduhan"
@@ -521,7 +511,7 @@ class JCEFBrowserEngine(
                         candidate = java.io.File(downloadsDir, "$baseName ($counter)$extension")
                         counter++
                     }
-                    DownloadStore.start(
+                    com.tradepilot.desktop.explorer.DownloadStore.start(
                         id = downloadItem.id,
                         fileName = candidate.name,
                         url = downloadItem.url ?: "",
@@ -531,6 +521,7 @@ class JCEFBrowserEngine(
                 } catch (t: Throwable) {
                     println("[JCEFBrowserEngine] Gagal mulai unduhan: ${t.message}")
                 }
+                return true
             }
 
             override fun onDownloadUpdated(
@@ -539,7 +530,7 @@ class JCEFBrowserEngine(
                 callback: org.cef.callback.CefDownloadItemCallback?
             ) {
                 if (browser !== this@JCEFBrowserEngine.browser || downloadItem == null) return
-                DownloadStore.update(
+                com.tradepilot.desktop.explorer.DownloadStore.update(
                     id = downloadItem.id,
                     progressPercent = downloadItem.percentComplete,
                     isComplete = downloadItem.isComplete,
