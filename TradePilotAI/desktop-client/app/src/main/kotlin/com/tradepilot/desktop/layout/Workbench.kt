@@ -113,6 +113,10 @@ fun Workbench(
     var isSidebarVisible by remember { mutableStateOf(true) }
     var isFindBarOpen by remember { mutableStateOf(false) }
     var isMenuOpen by remember { mutableStateOf(false) }
+    // Perbaikan bug posisi menu (lihat BrowserMenu.kt) -- dilaporkan oleh
+    // BrowserBar via onMenuButtonPositioned.
+    var menuAnchorPositionPx by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+    var menuAnchorSizePx by remember { mutableStateOf<androidx.compose.ui.geometry.Size?>(null) }
     val addressFocusRequester = remember { FocusRequester() }
     val rootFocusRequester = remember { FocusRequester() }
 
@@ -120,7 +124,12 @@ fun Workbench(
         val restored = initialTabs?.takeIf { it.isNotEmpty() }?.mapIndexed { index, saved ->
             BrowserTab(id = "tab-$index", title = saved.title, url = saved.url, isPinned = saved.isPinned)
         }
-        mutableStateListOf(*(restored ?: listOf(BrowserTab(id = "tab-0", title = "Exness", url = EXNESS_WEBTRADING_URL))).toTypedArray())
+        // Perbaikan bug (laporan user): default tab pertama kali app dibuka
+        // (dan tiap window baru tanpa sesi tersimpan) HARUS Google, bukan
+        // Exness -- Exness tetap ada sebagai quick-link/pinned site (lihat
+        // QUICK_LINKS di BrowserBar.kt & pinnedSites di bawah), cuma bukan
+        // lagi paksa jadi halaman pertama yang dibuka.
+        mutableStateListOf(*(restored ?: listOf(BrowserTab(id = "tab-0", title = "Google", url = "https://www.google.com"))).toTypedArray())
     }
     var activeTabId by remember { mutableStateOf(tabs.first().id) }
     var tabCounter by remember { mutableStateOf(tabs.size) }
@@ -417,6 +426,12 @@ fun Workbench(
                     isMenuOpen = isMenuOpen,
                     onOpenMenu = { isMenuOpen = true },
                     onDismissMenu = { isMenuOpen = false },
+                    menuAnchorPositionPx = menuAnchorPositionPx,
+                    menuAnchorSizePx = menuAnchorSizePx,
+                    onMenuButtonPositioned = { position, size ->
+                        menuAnchorPositionPx = position
+                        menuAnchorSizePx = size
+                    },
                     onShowPanel = { panel -> activePanel = panel; isSidebarVisible = true },
                     onOpenSettings = { isSettingsOpen = true },
                     onRequestExit = onRequestExit,
@@ -491,6 +506,9 @@ private fun Workspace(
     isMenuOpen: Boolean,
     onOpenMenu: () -> Unit,
     onDismissMenu: () -> Unit,
+    menuAnchorPositionPx: androidx.compose.ui.geometry.Offset?,
+    menuAnchorSizePx: androidx.compose.ui.geometry.Size?,
+    onMenuButtonPositioned: (androidx.compose.ui.geometry.Offset, androidx.compose.ui.geometry.Size) -> Unit,
     onShowPanel: (SidePanel) -> Unit,
     onOpenSettings: () -> Unit,
     onRequestExit: () -> Unit,
@@ -526,6 +544,7 @@ private fun Workspace(
                             isFullscreen = isFullscreen,
                             onToggleFullscreen = onToggleFullscreen,
                             onOpenMenu = onOpenMenu,
+                            onMenuButtonPositioned = onMenuButtonPositioned,
                             addressFocusRequester = addressFocusRequester,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -533,6 +552,8 @@ private fun Workspace(
                             BrowserMenu(
                                 expanded = isMenuOpen,
                                 onDismiss = onDismissMenu,
+                                anchorPositionInWindowPx = menuAnchorPositionPx,
+                                anchorSizeInWindowPx = menuAnchorSizePx,
                                 onNewTab = onNewTab,
                                 onNewWindow = onOpenNewWindow,
                                 onNewIncognitoWindow = onOpenIncognitoWindow,

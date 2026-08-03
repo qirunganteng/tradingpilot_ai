@@ -45,4 +45,12 @@ object Dimens {
     const val AI_PANEL_BUTTON_HEIGHT_DP = 34
 
     const val RESIZE_HANDLE_WIDTH_DP = 4 // lama 6dp
+
+    // --- Browser Menu (perbaikan laporan bug: "tampilan menu masih terlalu
+    // jadul, perkecil seperti tampilan balance/risk/tp/sl") ---
+    // Lama: pakai DropdownMenuItem M3 default (~48dp tinggi baris, font
+    // bodyLarge). Baru: samakan filosofi compact dengan AI_PANEL_* di atas.
+    const val MENU_ITEM_HEIGHT_DP = 30
+    const val MENU_WIDTH_DP = 220
+    const val MENU_ICON_SIZE_DP = 16
 }

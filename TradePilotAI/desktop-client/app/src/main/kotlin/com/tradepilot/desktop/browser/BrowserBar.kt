@@ -22,6 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tradepilot.desktop.explorer.BookmarkStore
@@ -54,6 +57,11 @@ fun BrowserBar(
     isFullscreen: Boolean,
     onToggleFullscreen: () -> Unit,
     onOpenMenu: () -> Unit,
+    // Perbaikan bug "menu muncul di pojok aplikasi, bukan dekat tombol" --
+    // lihat catatan lengkap di BrowserMenu.kt. Dilaporkan lewat
+    // `onGloballyPositioned` pada tombol menu-nya sendiri (posisi & ukuran
+    // relatif ke WINDOW dalam px), diteruskan Workbench.kt ke BrowserMenu.
+    onMenuButtonPositioned: (position: androidx.compose.ui.geometry.Offset, size: androidx.compose.ui.geometry.Size) -> Unit = { _, _ -> },
     addressFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
@@ -128,7 +136,12 @@ fun BrowserBar(
 
             // Prioritas 6: tombol menu Chrome-style, PopupMenu isinya di
             // BrowserMenu.kt.
-            IconButton(onClick = onOpenMenu, modifier = Modifier.size(30.dp)) {
+            IconButton(
+                onClick = onOpenMenu,
+                modifier = Modifier.size(30.dp).onGloballyPositioned { coords ->
+                    onMenuButtonPositioned(coords.positionInWindow(), coords.size.toSize())
+                }
+            ) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu", tint = AppColors.TextPrimary, modifier = Modifier.size(18.dp))
             }
         }

@@ -37,6 +37,31 @@ import kotlinx.coroutines.delay
  * digerakkan ke ~4dp paling atas layar, dan hilang lagi otomatis setelah
  * beberapa detik tidak disentuh (auto-hide) -- itu perilaku
  * [FullscreenRevealHost] di bawah.
+ *
+ * BUG KRITIS DITEMUKAN & DIPERBAIKI ("layar putih saat fullscreen, ESC/
+ * kembali serasa tidak berfungsi" -- laporan user): versi sebelumnya
+ * memanggil `browserContent()` dari DUA LOKASI KODE BERBEDA (early-return
+ * `if (!isFullscreen) { Column{...}; return }` vs cabang fullscreen
+ * `Box{...}`), dengan struktur container yang SAMA SEKALI beda (Column vs
+ * Box). Compose slot table mengidentifikasi composable berdasarkan POSISI
+ * di source/struktur eksekusi -- dua call site berbeda struktur = dianggap
+ * composable BERBEDA. Akibatnya setiap kali `isFullscreen` toggle, SELURUH
+ * subtree `browserContent()` (yaitu TabbedBrowserHost -> SEMUA
+ * JCEFBrowserEngine, BUKAN cuma tab aktif) di-DISPOSE lalu DIBUAT ULANG
+ * DARI NOL (CefBrowser baru, JCEF bootstrap baru) -- itu yang kelihatan
+ * sebagai layar putih (browser baru lagi boot), dan kenapa "tidak bisa
+ * kembali" terasa nyata (state/history halaman lama sudah lenyap duluan
+ * sebelum sempat kelihatan lagi).
+ *
+ * Fix: [movableContentOf] -- API Compose RESMI untuk kasus "pindahkan
+ * composable ke posisi layout lain TANPA kehilangan identitas/state-nya"
+ * (dipakai persis untuk skenario "video player pindah antara mode
+ * fullscreen & normal" di dokumentasi Compose -- kasus kita identik).
+ * `browserContent`/`hiddenChrome` SEKARANG dibungkus sekali lewat
+ * `remember { movableContentOf(...) }`, lalu WRAPPER-nya (bukan lambda
+ * asli) yang dipanggil di kedua cabang -- Compose tahu ini konten yang
+ * SAMA, jadi node-nya (termasuk JCEFBrowserEngine & CefBrowser di
+ * dalamnya) di-PINDAH ke posisi baru, bukan dibuat ulang.
  */
 @Composable
 fun FullscreenRevealHost(
@@ -45,6 +70,17 @@ fun FullscreenRevealHost(
     browserContent: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // remember(Unit) SENGAJA -- wrapper ini HARUS dibuat SEKALI seumur hidup
+    // composable ini & TIDAK PERNAH diganti lagi walau parameter lambda yang
+    // dikirim dari Workbench.kt berubah identitas objeknya tiap recomposition
+    // (lambda Kotlin biasa MEMANG selalu instance baru tiap recomposition --
+    // itu normal, BUKAN berarti "konten"-nya beda). Aman: closure di dalam
+    // browserContent/hiddenChrome membaca State/SnapshotStateList (nilai
+    // LIVE), bukan primitif ter-snapshot, jadi tetap benar walau instance
+    // lambda yang dibungkus adalah yang "pertama" ditangkap.
+    val stableBrowserContent = remember { movableContentOf(browserContent) }
+    val stableHiddenChrome = remember { movableContentOf(hiddenChrome) }
+
     if (!isFullscreen) {
         // FIX BUG: sebelumnya di sini pakai Box + fillMaxSize/fillMaxWidth untuk
         // KEDUA child (hiddenChrome & browserContent) sekaligus -- itu bikin
@@ -62,8 +98,8 @@ fun FullscreenRevealHost(
         // BAWAHNYA (weight(1f)) -- keduanya jadi bersebelahan vertikal, TIDAK
         // tumpang tindih sama sekali, persis layout Chrome/VSCode yang benar.
         Column(modifier = modifier.fillMaxSize()) {
-            hiddenChrome()
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) { browserContent() }
+            stableHiddenChrome()
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) { stableBrowserContent() }
         }
         return
     }
@@ -96,7 +132,7 @@ fun FullscreenRevealHost(
                 }
             }
     ) {
-        Box(modifier = Modifier.fillMaxSize()) { browserContent() }
+        Box(modifier = Modifier.fillMaxSize()) { stableBrowserContent() }
 
         AnimatedVisibility(
             visible = isRevealed,
@@ -104,7 +140,7 @@ fun FullscreenRevealHost(
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -it },
             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
         ) {
-            Box(modifier = Modifier.fillMaxWidth()) { hiddenChrome() }
+            Box(modifier = Modifier.fillMaxWidth()) { stableHiddenChrome() }
         }
     }
 }
