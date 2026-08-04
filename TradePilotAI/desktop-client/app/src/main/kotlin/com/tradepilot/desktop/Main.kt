@@ -15,6 +15,8 @@ import com.tradepilot.desktop.layout.Workbench
 import com.tradepilot.desktop.session.SessionStore
 import com.tradepilot.desktop.session.SessionTab
 import com.tradepilot.desktop.session.SessionWindow
+import com.tradepilot.desktop.settings.BrowserSettingsStore
+import com.tradepilot.desktop.settings.StartupMode
 import com.tradepilot.desktop.window.AppWindow
 
 /**
@@ -50,7 +52,31 @@ import com.tradepilot.desktop.window.AppWindow
  * prinsip privasi, lihat SessionStore.kt).
  */
 fun main() = application {
-    val savedSession = remember { SessionStore.load() }
+    // Perbaikan bug #3 ("On Startup" di Browser Settings, lihat
+    // BrowserSettingsDialog.kt) -- SEBELUM ini, savedSession SELALU dipakai
+    // kalau ada, tidak peduli preferensi user. Sekarang preferensi eksplisit
+    // di-cek DULU:
+    //  - NEW_TAB: savedSession diabaikan total (biarkan Workbench.kt pakai
+    //    default-nya sendiri, Google -- lihat Workbench.kt).
+    //  - CONTINUE_SESSION (default): perilaku LAMA, pakai savedSession kalau ada.
+    //  - SPECIFIC_PAGES: savedSession diabaikan, mulai dari 1 window berisi
+    //    URL-URL yang dikonfigurasi user di Settings.
+    val startupPref = remember { BrowserSettingsStore.load() }
+    val savedSession = remember {
+        when (startupPref.startupMode) {
+            StartupMode.CONTINUE_SESSION -> SessionStore.load()
+            StartupMode.NEW_TAB -> emptyList()
+            StartupMode.SPECIFIC_PAGES -> {
+                val urls = startupPref.specificStartupUrls.ifEmpty { listOf("https://www.google.com") }
+                listOf(
+                    SessionWindow(
+                        id = 0,
+                        tabs = urls.map { url -> SessionTab(url = url, title = url, isPinned = false) }
+                    )
+                )
+            }
+        }
+    }
 
     val windows = remember {
         if (savedSession.isNotEmpty()) {

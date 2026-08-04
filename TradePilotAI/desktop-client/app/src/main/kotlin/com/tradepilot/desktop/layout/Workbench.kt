@@ -92,6 +92,10 @@ fun Workbench(
     val tabEngines = remember { mutableStateMapOf<String, JCEFBrowserEngine>() }
     var gatewayConfig by remember { mutableStateOf(DesktopSettingsStore.resolve()) }
     var isSettingsOpen by remember { mutableStateOf(false) }
+    // Perbaikan bug #3 ("tombol Settings di menu browser malah buka Gateway
+    // settings"): dipisah total dari isSettingsOpen (Gateway/API key, tetap
+    // dibuka dari gear icon ActivityBar) -- lihat BrowserSettingsDialog.kt.
+    var isBrowserSettingsOpen by remember { mutableStateOf(false) }
 
     // Bug #8 fix: fullscreen sekarang state BERSAMA lewat CompositionLocal,
     // bukan `remember { mutableStateOf(false) }` lokal -- lihat dokumentasi
@@ -433,7 +437,7 @@ fun Workbench(
                         menuAnchorSizePx = size
                     },
                     onShowPanel = { panel -> activePanel = panel; isSidebarVisible = true },
-                    onOpenSettings = { isSettingsOpen = true },
+                    onOpenSettings = { isBrowserSettingsOpen = true },
                     onRequestExit = onRequestExit,
                     onOpenNewWindow = onOpenNewWindow,
                     onOpenIncognitoWindow = onOpenIncognitoWindow,
@@ -478,6 +482,16 @@ fun Workbench(
             onSaved = { saved ->
                 gatewayConfig = saved.toGatewayConfig()
                 isSettingsOpen = false
+            }
+        )
+    }
+
+    if (isBrowserSettingsOpen) {
+        com.tradepilot.desktop.settings.BrowserSettingsDialog(
+            onDismiss = { isBrowserSettingsOpen = false },
+            onClearBrowsingData = {
+                HistoryStore.clear()
+                browserEngine?.clearBrowsingData()
             }
         )
     }
@@ -580,14 +594,25 @@ private fun Workspace(
             },
             browserContent = {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    TabbedBrowserHost(
-                        modifier = Modifier.fillMaxSize(),
-                        tabs = tabs,
-                        activeTabId = activeTabId,
-                        isIncognito = isIncognito,
-                        onEngineForTab = onEngineForTab,
-                        onTabNavigated = onTabNavigated
-                    )
+                    // Perbaikan bug menu (lihat catatan panjang di
+                    // BrowserMenu.kt): SwingPanel (JCEF, heavyweight AWT)
+                    // SELALU digambar di atas layer Compose apa pun urutan
+                    // kodenya -- jadi selagi menu (Popup) terbuka, browser
+                    // disembunyikan total (0dp, bukan cuma transparan) supaya
+                    // menu benar-benar kelihatan & bisa menerima klik.
+                    // key(tab.id) di TabbedBrowserHost tetap menjaga identitas
+                    // engine (TIDAK di-dispose) -- sama seperti teknik yang
+                    // sudah dipakai untuk tab non-aktif.
+                    Box(modifier = if (isMenuOpen) Modifier.size(0.dp) else Modifier.fillMaxSize()) {
+                        TabbedBrowserHost(
+                            modifier = Modifier.fillMaxSize(),
+                            tabs = tabs,
+                            activeTabId = activeTabId,
+                            isIncognito = isIncognito,
+                            onEngineForTab = onEngineForTab,
+                            onTabNavigated = onTabNavigated
+                        )
+                    }
                     if (isFindBarOpen) {
                         Box(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
                             FindBar(

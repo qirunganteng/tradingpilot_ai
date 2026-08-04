@@ -740,16 +740,33 @@ class JCEFBrowserEngine(
     }
 
     /**
-     * Mitigasi bug #10 ("klik maximize, halaman browser jadi putih kosong") --
-     * SwingPanel yang membungkus komponen native JCEF kadang tidak dapat
-     * notifikasi resize yang benar dari OS saat window di-maximize/restore
-     * lewat WindowPlacement. Dipanggil dari JCEFBrowserView.kt setiap kali
-     * window placement/size berubah (lihat window/AppFullscreenState.kt --
-     * LocalAppWindowState) untuk memaksa komponen browser revalidate +
-     * repaint dirinya sendiri.
+     * Mitigasi bug #10 ("klik maximize/fullscreen, halaman browser jadi
+     * putih kosong") -- PERBAIKAN LEBIH KUAT (laporan bug: putih masih
+     * terjadi walau invalidate/validate/repaint sudah dipanggil).
+     *
+     * AKAR MASALAH SEBENARNYA: `invalidate()/validate()/repaint()` TIDAK
+     * memicu `java.awt.event.ComponentListener.componentResized` -- padahal
+     * JCEF internal memasang listener PERSIS itu ke uiComponent untuk tahu
+     * kapan harus memanggil `wasResized()` ke native browser (yang benar-
+     * benar membuat CEF menggambar ulang buffer pixel-nya di ukuran baru).
+     * `validate()` cuma menjalankan ulang layout Swing untuk komponen yang
+     * ditandai "invalid" -- kalau bounds-nya SUDAH "benar" dari sudut
+     * pandang Swing (SwingPanel sudah set bounds sesuai layout Compose),
+     * validate() jadi no-op dan `componentResized` TIDAK PERNAH terpicu,
+     * sehingga CEF tetap menggambar buffer LAMA (putih/beku) walau
+     * container-nya sudah berubah ukuran.
+     *
+     * FIX: "nudge resize" -- kecilkan 1px sesaat lalu kembalikan ke ukuran
+     * semula. Ini BENAR-BENAR mengubah bounds (dua kali), jadi Swing PASTI
+     * memicu componentResized asli, bukan cuma optimistically skip karena
+     * dikira tidak ada perubahan.
      */
     fun notifyResized() {
         val component = uiComponent
+        val size = component.size
+        if (size.width <= 1 || size.height <= 1) return
+        component.setSize(size.width - 1, size.height)
+        component.setSize(size)
         component.invalidate()
         component.validate()
         component.repaint()

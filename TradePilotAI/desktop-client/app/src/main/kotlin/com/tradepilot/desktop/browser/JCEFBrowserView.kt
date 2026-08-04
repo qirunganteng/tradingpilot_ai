@@ -87,19 +87,29 @@ fun JCEFBrowserView(
         }
     }
 
-    // Mitigasi bug #10 ("klik maximize, halaman browser jadi putih kosong") --
-    // lihat catatan lengkap di window/AppFullscreenState.kt (LocalAppWindowState).
-    // Setiap kali placement (Floating/Maximized/Fullscreen) atau size window
-    // berubah, paksa komponen browser revalidate+repaint dirinya sendiri.
+    // Mitigasi bug #10 ("klik maximize/fullscreen, halaman browser jadi
+    // putih kosong") -- lihat catatan lengkap di JCEFBrowserEngine.notifyResized()
+    // (akar masalah: invalidate/validate/repaint saja tidak memicu
+    // componentResized asli yang dibutuhkan JCEF internal) DAN di
+    // window/AppFullscreenState.kt (LocalAppWindowState).
+    //
+    // Key TAMBAHAN `fullscreenState?.isFullscreen` (selain placement/size
+    // window) SENGAJA ditambahkan -- laporan bug menunjukkan resize window
+    // ASLI saja belum cukup memicu ini tepat waktu untuk kasus fullscreen
+    // workspace (yang juga mengubah layout chrome secara Compose, bukan
+    // cuma ukuran window OS) -- toggle isFullscreen ITU SENDIRI sekarang
+    // jadi trigger eksplisit, bukan cuma efek samping dari windowState.
     val windowState = LocalAppWindowState.current
-    LaunchedEffect(engine, windowState?.placement, windowState?.size) {
+    val fullscreenState = com.tradepilot.desktop.window.LocalAppFullscreenState.current
+    LaunchedEffect(engine, windowState?.placement, windowState?.size, fullscreenState.isFullscreen) {
         val currentEngine = engine ?: return@LaunchedEffect
-        if (windowState == null) return@LaunchedEffect
-        // Dua kali dengan jeda kecil -- resize native AWT/CEF kadang butuh
-        // satu frame tambahan sebelum ukuran barunya benar-benar "settle".
-        currentEngine.notifyResized()
-        kotlinx.coroutines.delay(80)
-        currentEngine.notifyResized()
+        // Beberapa kali dengan jeda -- transisi fullscreen (ganti layout
+        // chrome + resize window sekaligus) butuh lebih dari 1 frame sebelum
+        // ukuran benar-benar "settle" secara visual maupun di sisi native CEF.
+        repeat(3) { attempt ->
+            currentEngine.notifyResized()
+            kotlinx.coroutines.delay(if (attempt == 0) 50L else 150L)
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
