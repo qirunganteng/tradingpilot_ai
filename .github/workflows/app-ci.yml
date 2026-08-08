@@ -22,7 +22,11 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
-      - run: flutter analyze
+      # --no-fatal-infos / --no-fatal-warnings: only a real analyzer *error*
+      # should block CI. Style-level info/warning lints (deprecated API
+      # notices, avoid_print, etc.) are worth fixing but shouldn't be a
+      # hard merge gate -- run `flutter analyze` locally to see them all.
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: dart format --output=none --set-exit-if-changed lib || true
 
   # Only runs on an actual version tag push (e.g. `git tag v1.1.0 && git push

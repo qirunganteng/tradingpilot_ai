@@ -30,7 +30,7 @@ class DeepLinkData {
 
   factory DeepLinkData.fromUri(Uri uri) {
     final pathSegments = uri.pathSegments;
-    
+
     final command = _parseCommand(
       pathSegments.isNotEmpty ? pathSegments[0] : 'unknown'
     );
@@ -73,17 +73,25 @@ class DeepLinkService {
         return DeepLinkData.fromUri(uri);
       }
     } catch (e) {
-      print('Error getting initial link: $e');
+      debugPrintDeepLinkError('Error getting initial link: $e');
     }
     return null;
   }
 }
 
-/// Handler for processing deep links and navigating
-class DeepLinkHandler {
-  final DeepLinkService _deepLinkService;
+void debugPrintDeepLinkError(String message) {
+  assert(() {
+    // ignore: avoid_print
+    print(message);
+    return true;
+  }());
+}
 
-  DeepLinkHandler(this._deepLinkService);
+/// Handler for processing deep links and navigating. Stateless -- it only
+/// maps a parsed [DeepLinkData] to a [WorkspaceMode], so it doesn't need to
+/// hold a reference to [DeepLinkService] at all.
+class DeepLinkHandler {
+  const DeepLinkHandler();
 
   /// Process deep link and return workspace to navigate to
   WorkspaceMode? processDeepLink(DeepLinkData link) {
@@ -93,16 +101,16 @@ class DeepLinkHandler {
       case DeepLinkCommand.chart:
       case DeepLinkCommand.portfolio:
         return WorkspaceMode.trading;
-      
+
       case DeepLinkCommand.aiPilot:
         return WorkspaceMode.aiPilot;
-      
+
       case DeepLinkCommand.community:
         return WorkspaceMode.social;
-      
+
       case DeepLinkCommand.learning:
         return WorkspaceMode.learning;
-      
+
       case DeepLinkCommand.alerts:
       case DeepLinkCommand.settings:
       case DeepLinkCommand.unknown:
@@ -119,8 +127,7 @@ final deepLinkServiceProvider = Provider((_) => DeepLinkService());
 
 /// Riverpod provider for deep link handler
 final deepLinkHandlerProvider = Provider((ref) {
-  final service = ref.watch(deepLinkServiceProvider);
-  return DeepLinkHandler(service);
+  return const DeepLinkHandler();
 });
 
 /// Stream of deep link events

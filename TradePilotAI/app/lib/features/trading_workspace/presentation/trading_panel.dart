@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:just_audio/just_audio.dart';
 import '../../../core/navigation/dock_panel_header.dart';
 import '../../learning_lofi/providers/audio_provider.dart';
 import 'orderbook_view.dart';
@@ -98,10 +97,10 @@ class _LofiMiniBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isPlaying = ref.watch(isPlayingProvider).value ?? false;
-    final processingState = ref.watch(processingStateProvider).value ?? ProcessingState.idle;
+    final processingState = ref.watch(processingStateProvider).value ?? AudioProcessingState.idle;
     final volume = ref.watch(volumeProvider);
     final audioService = ref.read(audioServiceProvider);
-    final isBuffering = processingState == ProcessingState.loading || processingState == ProcessingState.buffering;
+    final isBuffering = processingState == AudioProcessingState.buffering;
 
     return Container(
       decoration: const BoxDecoration(

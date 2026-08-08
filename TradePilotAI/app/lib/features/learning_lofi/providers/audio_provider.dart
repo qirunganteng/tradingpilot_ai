@@ -1,5 +1,4 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:just_audio/just_audio.dart';
 import '../services/audio_player_service.dart';
 
 final audioServiceProvider = Provider<AudioPlayerService>((ref) {
@@ -11,12 +10,19 @@ final audioServiceProvider = Provider<AudioPlayerService>((ref) {
 
 final isPlayingProvider = StreamProvider<bool>((ref) {
   final service = ref.watch(audioServiceProvider);
-  return service.player.playingStream;
+  return service.playingStream;
 });
 
-final processingStateProvider = StreamProvider<ProcessingState>((ref) {
+/// media_kit doesn't expose the same ProcessingState enum just_audio had --
+/// this maps its plain `buffering` bool stream onto a small stand-in enum
+/// so callers (e.g. the Lofi mini-bar's spinner) don't need to change.
+enum AudioProcessingState { idle, buffering, ready }
+
+final processingStateProvider = StreamProvider<AudioProcessingState>((ref) {
   final service = ref.watch(audioServiceProvider);
-  return service.player.processingStateStream;
+  return service.bufferingStream.map(
+    (buffering) => buffering ? AudioProcessingState.buffering : AudioProcessingState.ready,
+  );
 });
 
 class VolumeNotifier extends Notifier<double> {

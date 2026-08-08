@@ -1,5 +1,4 @@
-import 'package:just_audio/just_audio.dart';
-import 'package:audio_service/audio_service.dart';
+import 'package:media_kit/media_kit.dart';
 
 enum AudioSourceType {
   url,
@@ -25,15 +24,21 @@ class AudioSourceInfo {
   });
 }
 
-/// Enhanced Audio Player Service with background playback support
+/// Audio playback backed by media_kit (libmpv) instead of just_audio.
+///
+/// This mirrors the reference pattern from Spotube (spotube-master), which
+/// specifically chose media_kit over just_audio for reliable Windows
+/// Desktop playback -- just_audio's desktop support is comparatively
+/// thin/less battle-tested. See CONSTITUTION.md's cross-platform-first
+/// package selection rule ("Selalu prioritaskan package yang memiliki
+/// dukungan Cross-Platform (Desktop + Mobile) yang stabil").
 class AudioPlayerService {
-  final AudioPlayer _player = AudioPlayer();
-  
-  // Playlist management
+  final Player _player = Player();
+
   final List<AudioSourceInfo> _playlist = [];
   int _currentIndex = 0;
 
-  AudioPlayer get player => _player;
+  Player get player => _player;
   List<AudioSourceInfo> get playlist => _playlist;
   int get currentIndex => _currentIndex;
 
@@ -43,12 +48,9 @@ class AudioPlayerService {
     final streamUrl = initialStream ?? defaultStream;
 
     try {
-      await _player.setAudioSource(
-        AudioSource.uri(Uri.parse(streamUrl)),
-        preload: true,
-      );
+      await _player.open(Media(streamUrl), play: false);
     } catch (e) {
-      print("Error loading audio source: $e");
+      _logError('Error loading audio source', e);
     }
   }
 
@@ -56,151 +58,136 @@ class AudioPlayerService {
   Future<void> loadAudio(AudioSourceInfo source) async {
     try {
       if (source.type == AudioSourceType.url) {
-        await _player.setAudioSource(
-          AudioSource.uri(Uri.parse(source.source)),
-          preload: true,
-        );
+        await _player.open(Media(source.source));
       }
     } catch (e) {
-      print("Error loading audio: $e");
+      _logError('Error loading audio', e);
       rethrow;
     }
   }
 
-  /// Load multiple audio sources as playlist
+  /// Load multiple audio sources as a playlist
   Future<void> loadPlaylist(List<AudioSourceInfo> sources) async {
     try {
-      _playlist.clear();
-      _playlist.addAll(sources);
-      
+      _playlist
+        ..clear()
+        ..addAll(sources);
+      _currentIndex = 0;
+
       if (sources.isNotEmpty) {
-        final audioSources = sources
-            .map((s) => AudioSource.uri(Uri.parse(s.source)))
-            .toList();
-        
-        await _player.setAudioSource(
-          ConcatenatingAudioSource(children: audioSources),
-          preload: true,
-        );
+        final playlist = Playlist(sources.map((s) => Media(s.source)).toList());
+        await _player.open(playlist);
       }
     } catch (e) {
-      print("Error loading playlist: $e");
+      _logError('Error loading playlist', e);
       rethrow;
     }
   }
 
-  /// Play current audio
   Future<void> play() async {
     try {
       await _player.play();
     } catch (e) {
-      print("Error playing audio: $e");
+      _logError('Error playing audio', e);
     }
   }
 
-  /// Pause playback
   Future<void> pause() async {
     try {
       await _player.pause();
     } catch (e) {
-      print("Error pausing audio: $e");
+      _logError('Error pausing audio', e);
     }
   }
 
-  /// Resume playback
   Future<void> resume() async {
     try {
-      if (_player.playerState.playing) {
+      if (_player.state.playing) {
         await pause();
       } else {
         await play();
       }
     } catch (e) {
-      print("Error toggling playback: $e");
+      _logError('Error toggling playback', e);
     }
   }
 
-  /// Stop playback
   Future<void> stop() async {
     try {
       await _player.stop();
     } catch (e) {
-      print("Error stopping audio: $e");
+      _logError('Error stopping audio', e);
     }
   }
 
-  /// Set volume (0.0 - 1.0)
+  /// Set volume. Accepts the same 0.0-1.0 range the rest of the app uses
+  /// and rescales to media_kit's native 0-100 range internally.
   Future<void> setVolume(double volume) async {
     try {
-      await _player.setVolume(volume.clamp(0.0, 1.0));
+      await _player.setVolume(volume.clamp(0.0, 1.0) * 100);
     } catch (e) {
-      print("Error setting volume: $e");
+      _logError('Error setting volume', e);
     }
   }
 
-  /// Skip to next track
   Future<void> skipNext() async {
     try {
       if (_currentIndex < _playlist.length - 1) {
         _currentIndex++;
-        await _player.seek(Duration.zero, index: _currentIndex);
+        await _player.next();
       }
     } catch (e) {
-      print("Error skipping next: $e");
+      _logError('Error skipping next', e);
     }
   }
 
-  /// Skip to previous track
   Future<void> skipPrevious() async {
     try {
       if (_currentIndex > 0) {
         _currentIndex--;
-        await _player.seek(Duration.zero, index: _currentIndex);
+        await _player.previous();
       }
     } catch (e) {
-      print("Error skipping previous: $e");
+      _logError('Error skipping previous', e);
     }
   }
 
-  /// Seek to position
   Future<void> seek(Duration position) async {
     try {
       await _player.seek(position);
     } catch (e) {
-      print("Error seeking: $e");
+      _logError('Error seeking', e);
     }
   }
 
-  /// Get current playback state
-  PlayerState? getCurrentState() => _player.playerState;
+  PlayerState getCurrentState() => _player.state;
 
-  /// Get current position stream
-  Stream<Duration> get positionStream => _player.positionStream;
+  Stream<Duration> get positionStream => _player.stream.position;
+  Stream<Duration> get durationStream => _player.stream.duration;
+  Stream<bool> get playingStream => _player.stream.playing;
+  Stream<bool> get bufferingStream => _player.stream.buffering;
 
-  /// Get duration stream
-  Stream<Duration?> get durationStream => _player.durationStream;
-
-  /// Get player state stream
-  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
-
-  /// Get playback speed stream
-  Stream<double> get speedStream => _player.speedStream;
-
-  /// Set playback speed
   Future<void> setSpeed(double speed) async {
     try {
-      await _player.setSpeed(speed);
+      await _player.setRate(speed);
     } catch (e) {
-      print("Error setting speed: $e");
+      _logError('Error setting speed', e);
     }
   }
 
-  /// Dispose resources
   Future<void> dispose() async {
     try {
       await _player.dispose();
     } catch (e) {
-      print("Error disposing player: $e");
+      _logError('Error disposing player', e);
     }
+  }
+
+  void _logError(String context, Object e) {
+    assert(() {
+      // ignore: avoid_print
+      print('[AudioPlayerService] $context: $e');
+      return true;
+    }());
   }
 }
