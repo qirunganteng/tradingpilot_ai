@@ -69,17 +69,10 @@ class _JournalViewState extends State<JournalView> {
   Widget build(BuildContext context) {
     return Container(
       color: const Color(0xFF1E1E1E),
-      padding: const EdgeInsets.all(8.0),
+      padding: const EdgeInsets.all(6.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8.0),
-            child: Text(
-              'Trading Journal',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
           Expanded(
             child: PlutoGrid(
               columns: columns,
@@ -91,6 +84,10 @@ class _JournalViewState extends State<JournalView> {
                   gridBorderColor: Colors.grey[800]!,
                   borderColor: Colors.grey[800]!,
                   activatedColor: Colors.blueAccent.withOpacity(0.2),
+                  cellTextStyle: const TextStyle(fontSize: 11.5),
+                  columnTextStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  rowHeight: 26,
+                  columnHeight: 28,
                 ),
               ),
             ),

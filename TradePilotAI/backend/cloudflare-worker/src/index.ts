@@ -1,5 +1,6 @@
-import type { AnalysisResult, AnalyzeRequestBody, CalculateRiskRequestBody, Env, OcrRequestBody, OcrResult } from "./types";
+import type { AnalysisResult, AnalyzeRequestBody, CalculateRiskRequestBody, ChatStreamRequestBody, Env, OcrRequestBody, OcrResult } from "./types";
 import { analyzeChartWithGemini, GeminiError } from "./gemini";
+import { streamChat, ChatProviderError } from "./chat";
 import { extractLabelsWithGemini } from "./ocr";
 import { calculateRisk, RiskValidationError } from "./riskEngine";
 import { storeChartImage } from "./storage";
@@ -177,6 +178,69 @@ async function handleHistory(request: Request, env: Env): Promise<Response> {
   return json({ analyses: results }, 200);
 }
 
+/**
+ * Fase 7 -- the endpoint the Flutter client's AiStreamService actually
+ * calls (`/api/v1/chat/stream`). Wraps chat.ts's unified async-generator
+ * stream in the exact SSE wire format the client already knows how to
+ * parse: `data: {"text": "..."}\n\n`, terminated with `data: [DONE]\n\n`.
+ */
+function handleChatStream(request: Request, env: Env): Promise<Response> {
+  return (async () => {
+    let deviceId = "unknown";
+    let body: ChatStreamRequestBody;
+    try {
+      body = (await request.json()) as ChatStreamRequestBody;
+    } catch {
+      return json({ error: "Body harus JSON valid" }, 400);
+    }
+    deviceId = body.deviceId || "unknown";
+
+    if (!body.prompt || !body.prompt.trim()) {
+      return json({ error: "prompt wajib diisi" }, 400);
+    }
+
+    const rate = await checkRateLimit(env, deviceId);
+    if (!rate.allowed) {
+      await logRequest(env, deviceId, "/api/v1/chat/stream", 429, "rate limited").catch(() => {});
+      return json({ error: "Terlalu banyak permintaan, coba lagi sebentar lagi." }, 429);
+    }
+
+    const provider = body.provider || "gemini";
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for await (const chunk of streamChat({ env, provider, prompt: body.prompt, systemContext: body.system_context })) {
+            const event = `data: ${JSON.stringify({ text: chunk })}\n\n`;
+            controller.enqueue(encoder.encode(event));
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          await logRequest(env, deviceId, "/api/v1/chat/stream", 200, null).catch(() => {});
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "Internal error";
+          const status = e instanceof ChatProviderError ? e.status : 500;
+          const event = `data: ${JSON.stringify({ text: `\n\n[Gateway error ${status}: ${message}]` })}\n\n`;
+          controller.enqueue(encoder.encode(event));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          await logRequest(env, deviceId, "/api/v1/chat/stream", status, message).catch(() => {});
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  })();
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -199,6 +263,10 @@ export default {
 
     if (url.pathname === "/api/v1/calculate-risk" && request.method === "POST") {
       return handleCalculateRisk(request, env);
+    }
+
+    if (url.pathname === "/api/v1/chat/stream" && request.method === "POST") {
+      return handleChatStream(request, env);
     }
 
     if (url.pathname === "/api/v1/analyses" && request.method === "GET") {

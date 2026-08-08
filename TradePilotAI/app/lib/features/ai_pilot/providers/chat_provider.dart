@@ -1,4 +1,5 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import '../../../core/network/app_config.dart';
 import '../services/ai_stream_service.dart';
 
 class ChatMessage {
@@ -21,7 +22,13 @@ class ChatMessage {
   }
 }
 
-final aiStreamServiceProvider = Provider((ref) => AiStreamService());
+final aiStreamServiceProvider = Provider((ref) {
+  final config = ref.watch(appConfigProvider);
+  return AiStreamService(
+    backendUrl: config.gatewayUrl,
+    apiKey: config.gatewayToken.isEmpty ? null : config.gatewayToken,
+  );
+});
 
 class AiProviderNotifier extends Notifier<AiProvider> {
   @override
@@ -57,11 +64,16 @@ class ChatNotifier extends Notifier<List<ChatMessage>> {
     final aiMessageIndex = state.length - 1;
 
     try {
-      // Stream chat response
+      // Stream chat response — useMock only kicks in if there's no gateway
+      // token configured yet, so the UI still feels alive out of the box
+      // instead of just erroring, while a real backend connection (once
+      // the user sets a Gateway URL + token in Settings) takes over
+      // automatically.
+      final hasBackend = ref.read(appConfigProvider).gatewayToken.isNotEmpty;
       await for (final chunk in service.streamChat(
         prompt: prompt,
         provider: provider,
-        useMock: false, // Set to true for testing without backend
+        useMock: !hasBackend,
       )) {
         final updatedMessages = List<ChatMessage>.from(state);
         final currentMessage = updatedMessages[aiMessageIndex];

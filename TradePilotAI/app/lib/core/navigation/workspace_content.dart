@@ -1,102 +1,122 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:multi_split_view/multi_split_view.dart';
 import 'package:tradepilot/features/trading_workspace/presentation/browser_view.dart';
-import 'package:tradepilot/features/trading_workspace/presentation/orderbook_view.dart';
-import 'package:tradepilot/features/trading_workspace/presentation/journal_view.dart';
-import 'package:tradepilot/features/ai_pilot/presentation/chat_view.dart';
+import 'package:tradepilot/features/trading_workspace/presentation/trading_panel.dart';
+import 'package:tradepilot/features/ai_pilot/presentation/ai_panel.dart';
 import 'package:tradepilot/features/social_community/presentation/social_view.dart';
 import 'package:tradepilot/features/learning_lofi/presentation/educational_view.dart';
 import 'activity_bar.dart';
 
-class WorkspaceContentBuilder extends ConsumerWidget {
+/// VSCode-style persistent workspace body.
+///
+/// The [BrowserView] in the center is created exactly ONCE and never leaves
+/// the widget tree — clicking activity bar icons (Trading / AI Pilot /
+/// Community / Learning) only shows/hides the docks around it via
+/// [leftDockModeProvider] and [aiPanelVisibleProvider]. Every child here has
+/// a stable [Key], so Flutter's element reconciliation keeps their State
+/// (browser tabs, AI chat history, etc.) alive no matter which docks are
+/// toggled open/closed — including going fully fullscreen when both docks
+/// are closed, exactly like VSCode's editor area.
+class WorkspaceContentBuilder extends ConsumerStatefulWidget {
   const WorkspaceContentBuilder({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(workspaceModeProvider);
-
-    return switch (mode) {
-      WorkspaceMode.trading => const TradingWorkspaceContent(),
-      WorkspaceMode.aiPilot => const AiPilotWorkspaceContent(),
-      WorkspaceMode.social => const SocialWorkspaceContent(),
-      WorkspaceMode.learning => const LearningWorkspaceContent(),
-      _ => const Placeholder(),
-    };
-  }
+  ConsumerState<WorkspaceContentBuilder> createState() => _WorkspaceContentBuilderState();
 }
 
-/// Trading Workspace: Browser + Chart + Orderbook + Journal
-class TradingWorkspaceContent extends StatefulWidget {
-  const TradingWorkspaceContent({super.key});
+class _WorkspaceContentBuilderState extends ConsumerState<WorkspaceContentBuilder> {
+  double _leftWidth = 240;
+  double _rightWidth = 300;
 
-  @override
-  State<TradingWorkspaceContent> createState() => _TradingWorkspaceContentState();
-}
-
-class _TradingWorkspaceContentState extends State<TradingWorkspaceContent> {
-  final MultiSplitViewController _controller = MultiSplitViewController(
-    areas: [
-      Area(
-        flex: 0.15,
-        min: 0.1,
-        builder: (context, area) => const OrderbookView(),
-      ),
-      Area(
-        flex: 0.55,
-        min: 0.3,
-        builder: (context, area) => const BrowserView(),
-      ),
-      Area(
-        flex: 0.3,
-        min: 0.2,
-        builder: (context, area) => const JournalView(),
-      ),
-    ],
-  );
+  static const double _minPanelWidth = 200;
+  static const double _maxPanelWidth = 520;
+  static const double _handleWidth = 4;
 
   @override
   Widget build(BuildContext context) {
-    return MultiSplitViewTheme(
-      data: MultiSplitViewThemeData(
-        dividerPainter: DividerPainters.grooved1(
-          color: Colors.grey[800]!,
-          highlightedColor: Colors.blue,
+    final leftMode = ref.watch(leftDockModeProvider);
+    final aiVisible = ref.watch(aiPanelVisibleProvider);
+
+    Widget? leftPanel;
+    switch (leftMode) {
+      case LeftDockMode.trading:
+        leftPanel = TradingPanel(onClose: () => ref.read(leftDockModeProvider.notifier).close());
+        break;
+      case LeftDockMode.social:
+        leftPanel = SocialView(onClose: () => ref.read(leftDockModeProvider.notifier).close());
+        break;
+      case LeftDockMode.learning:
+        leftPanel = EducationalView(onClose: () => ref.read(leftDockModeProvider.notifier).close());
+        break;
+      case null:
+        leftPanel = null;
+        break;
+    }
+
+    return Row(
+      children: [
+        if (leftPanel != null) ...[
+          SizedBox(
+            key: const ValueKey('left-dock'),
+            width: _leftWidth,
+            child: leftPanel,
+          ),
+          _ResizeHandle(
+            key: const ValueKey('left-handle'),
+            width: _handleWidth,
+            onDrag: (dx) {
+              setState(() => _leftWidth = (_leftWidth + dx).clamp(_minPanelWidth, _maxPanelWidth));
+            },
+          ),
+        ],
+        const Expanded(
+          key: ValueKey('browser-expanded'),
+          child: BrowserView(key: ValueKey('main-browser')),
         ),
-      ),
-      child: MultiSplitView(
-        controller: _controller,
-      ),
+        if (aiVisible) ...[
+          _ResizeHandle(
+            key: const ValueKey('right-handle'),
+            width: _handleWidth,
+            onDrag: (dx) {
+              setState(() => _rightWidth = (_rightWidth - dx).clamp(_minPanelWidth, _maxPanelWidth));
+            },
+          ),
+          SizedBox(
+            key: const ValueKey('right-dock'),
+            width: _rightWidth,
+            child: AiPanel(
+              key: const ValueKey('ai-panel'),
+              onClose: () => ref.read(aiPanelVisibleProvider.notifier).close(),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
 
-/// AI Pilot Workspace: Focus on chat interface
-class AiPilotWorkspaceContent extends StatelessWidget {
-  const AiPilotWorkspaceContent({super.key});
+/// A thin, draggable divider between docks and the browser, with a resize
+/// cursor on desktop — matches VSCode's panel-resize handles.
+class _ResizeHandle extends StatelessWidget {
+  final double width;
+  final ValueChanged<double> onDrag;
+  const _ResizeHandle({super.key, required this.width, required this.onDrag});
 
   @override
   Widget build(BuildContext context) {
-    return const ChatView();
-  }
-}
-
-/// Social & Community Workspace
-class SocialWorkspaceContent extends StatelessWidget {
-  const SocialWorkspaceContent({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const SocialView();
-  }
-}
-
-/// Learning & Entertainment Workspace
-class LearningWorkspaceContent extends StatelessWidget {
-  const LearningWorkspaceContent({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const EducationalView();
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragUpdate: (details) => onDrag(details.delta.dx),
+        child: SizedBox(
+          width: width,
+          child: Center(
+            child: Container(width: 1, color: const Color(0xFF2D2D30)),
+          ),
+        ),
+      ),
+    );
   }
 }

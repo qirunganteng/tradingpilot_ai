@@ -55,15 +55,15 @@ class _OrderbookViewState extends State<OrderbookView> {
   Widget build(BuildContext context) {
     return Container(
       color: const Color(0xFF1E1E1E),
-      padding: const EdgeInsets.all(8.0),
+      padding: const EdgeInsets.all(6.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Padding(
-            padding: EdgeInsets.only(bottom: 8.0),
+            padding: EdgeInsets.only(bottom: 6.0, left: 2),
             child: Text(
-              'Orderbook (BTC/USDT)',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              'BTC/USDT',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey),
             ),
           ),
           Expanded(
@@ -78,6 +78,10 @@ class _OrderbookViewState extends State<OrderbookView> {
                   borderColor: Colors.grey[800]!,
                   activatedColor: Colors.blueAccent.withOpacity(0.2),
                   activatedBorderColor: Colors.blueAccent,
+                  cellTextStyle: const TextStyle(fontSize: 11.5),
+                  columnTextStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  rowHeight: 26,
+                  columnHeight: 28,
                 ),
               ),
             ),

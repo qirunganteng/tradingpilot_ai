@@ -6,6 +6,18 @@ export interface Env {
   GATEWAY_AUTH_TOKEN: string;
   GEMINI_MODEL: string;
   ENVIRONMENT: string;
+  // Multi-provider AI Gateway (Fase 7 -- CONSTITUTION.md "AI GATEWAY":
+  // Gemini, OpenAI, Claude, DeepSeek, Qwen). All optional: a provider is
+  // simply unavailable (clear error, not a crash) until its key is set via
+  // `wrangler secret put <NAME>`.
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  DEEPSEEK_API_KEY?: string;
+  QWEN_API_KEY?: string;
+  CLAUDE_MODEL?: string;
+  OPENAI_MODEL?: string;
+  DEEPSEEK_MODEL?: string;
+  QWEN_MODEL?: string;
 }
 
 export type TradeDirection = "BUY" | "SELL" | "NONE";
@@ -74,6 +86,20 @@ export interface CalculateRiskRequestBody {
   pipValuePerLotUsd?: number;
   pipSize?: number;
   deviceId: string;
+}
+
+/**
+ * Fase 7 (CONSTITUTION.md "AI Pilot Workspace": "Streaming Chat Interface
+ * via Cloudflare AI Gateway"). Mirrors exactly what the Flutter client's
+ * AiStreamService sends -- see app/lib/features/ai_pilot/services/ai_stream_service.dart.
+ */
+export type AiProviderName = "gemini" | "claude" | "openai" | "deepseek" | "qwen";
+
+export interface ChatStreamRequestBody {
+  prompt: string;
+  provider?: AiProviderName;
+  system_context?: Record<string, unknown> | null;
+  deviceId?: string;
 }
 
 export interface RiskRecommendation {

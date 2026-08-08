@@ -18,4 +18,18 @@ id = "144db6fc267b4f93a9b805417b42e253"
 
 [vars]
 GEMINI_MODEL = "gemini-2.5-flash"
+CLAUDE_MODEL = "claude-sonnet-4-6"
+OPENAI_MODEL = "gpt-4o-mini"
+DEEPSEEK_MODEL = "deepseek-chat"
+QWEN_MODEL = "qwen-plus"
 ENVIRONMENT = "development"
+
+# Secrets (NOT stored here -- set via `wrangler secret put <NAME>`):
+#   GEMINI_API_KEY       (required -- already in use)
+#   GATEWAY_AUTH_TOKEN   (required -- already in use)
+#   ANTHROPIC_API_KEY    (optional -- enables the Claude provider)
+#   OPENAI_API_KEY       (optional -- enables the OpenAI provider)
+#   DEEPSEEK_API_KEY     (optional -- enables the DeepSeek provider)
+#   QWEN_API_KEY         (optional -- enables the Qwen provider)
+# A provider without its key configured returns a clear 503 error from
+# /api/v1/chat/stream instead of crashing -- Gemini keeps working either way.

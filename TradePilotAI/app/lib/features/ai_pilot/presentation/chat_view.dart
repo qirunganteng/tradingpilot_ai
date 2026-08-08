@@ -5,7 +5,8 @@ import '../providers/chat_provider.dart';
 import '../services/ai_stream_service.dart';
 
 class ChatView extends ConsumerStatefulWidget {
-  const ChatView({super.key});
+  final VoidCallback? onClose;
+  const ChatView({super.key, this.onClose});
 
   @override
   ConsumerState<ChatView> createState() => _ChatViewState();
@@ -52,53 +53,88 @@ class _ChatViewState extends ConsumerState<ChatView> {
         children: [
           // Header with provider selector
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             color: const Color(0xFF1E1E1E),
             child: Row(
               children: [
-                const Text(
-                  'AI Pilot Workspace',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                const Spacer(),
-                // AI Provider Dropdown
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[900],
-                    borderRadius: BorderRadius.circular(6),
+                const Expanded(
+                  child: Text(
+                    'AI Pilot',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
-                  child: DropdownButton<AiProvider>(
-                    value: selectedProvider,
-                    underline: const SizedBox(),
-                    dropdownColor: Colors.grey[900],
-                    items: AiProvider.values.map((provider) {
-                      return DropdownMenuItem(
+                ),
+                // AI Provider selector — a compact popup menu (not a
+                // DropdownButton) since Flutter's DropdownButton forces each
+                // item to be at least 48px tall for accessibility, which is
+                // what made this list look so oversized before.
+                PopupMenuButton<AiProvider>(
+                  tooltip: 'Choose AI provider',
+                  initialValue: selectedProvider,
+                  color: const Color(0xFF2D2D30),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 130, maxWidth: 150),
+                  onSelected: (value) => ref.read(selectedAiProviderProvider.notifier).setProvider(value),
+                  itemBuilder: (context) => [
+                    for (final provider in AiProvider.values)
+                      PopupMenuItem(
                         value: provider,
-                        child: Text(
-                          provider.name.toUpperCase(),
-                          style: const TextStyle(fontSize: 12),
+                        height: 30,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (provider == selectedProvider)
+                              const Icon(Icons.check, size: 13, color: Colors.blueAccent)
+                            else
+                              const SizedBox(width: 13),
+                            const SizedBox(width: 6),
+                            Text(provider.name.toUpperCase(), style: const TextStyle(fontSize: 11.5)),
+                          ],
                         ),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        ref.read(selectedAiProviderProvider.notifier).setProvider(value);
-                      }
-                    },
+                      ),
+                  ],
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          selectedProvider.name.toUpperCase(),
+                          style: const TextStyle(fontSize: 10.5, color: Colors.white),
+                        ),
+                        const SizedBox(width: 3),
+                        const Icon(Icons.arrow_drop_down, size: 15, color: Colors.grey),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
                 // Clear history button
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18),
+                  icon: const Icon(Icons.delete_outline, size: 15),
                   tooltip: 'Clear history',
                   onPressed: () {
                     ref.read(chatProvider.notifier).clearHistory();
                   },
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                 ),
+                if (widget.onClose != null)
+                  Tooltip(
+                    message: 'Close panel',
+                    child: InkWell(
+                      onTap: widget.onClose,
+                      borderRadius: BorderRadius.circular(4),
+                      child: const Padding(
+                        padding: EdgeInsets.all(5),
+                        child: Icon(Icons.close, size: 14, color: Colors.grey),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -126,7 +162,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
                   )
                 : ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(10),
                     itemCount: messages.length,
                     itemBuilder: (context, index) {
                       final msg = messages[index];
@@ -134,27 +170,29 @@ class _ChatViewState extends ConsumerState<ChatView> {
                       return Align(
                         alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                         child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                           decoration: BoxDecoration(
                             color: isUser ? Colors.blue[800] : Colors.grey[800],
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                           ),
                           constraints: BoxConstraints(
-                            maxWidth: MediaQuery.of(context).size.width * 0.7,
+                            maxWidth: MediaQuery.of(context).size.width * 0.8,
                           ),
                           child: MarkdownBody(
                             data: msg.content,
                             styleSheet: MarkdownStyleSheet(
-                              p: const TextStyle(color: Colors.white),
+                              p: const TextStyle(color: Colors.white, fontSize: 12.5, height: 1.35),
                               code: const TextStyle(
                                 backgroundColor: Colors.black45,
                                 color: Colors.greenAccent,
+                                fontSize: 11.5,
                               ),
                               codeblockDecoration: BoxDecoration(
                                 color: Colors.black87,
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(6),
                               ),
+                              codeblockPadding: const EdgeInsets.all(8),
                             ),
                           ),
                         ),
@@ -163,31 +201,39 @@ class _ChatViewState extends ConsumerState<ChatView> {
                   ),
           ),
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _controller,
+                    style: const TextStyle(fontSize: 12.5),
                     onSubmitted: (_) => _sendMessage(),
                     decoration: InputDecoration(
-                      hintText: 'Ask AI about market analysis, risk, strategy...',
+                      hintText: 'Ask AI about market analysis...',
+                      hintStyle: const TextStyle(fontSize: 12),
+                      isDense: true,
                       filled: true,
                       fillColor: Colors.grey[900],
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(20),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: Colors.blueAccent,
-                  radius: 24,
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 34,
+                  height: 34,
                   child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      shape: const CircleBorder(),
+                    ),
+                    icon: const Icon(Icons.send, color: Colors.white, size: 16),
+                    padding: EdgeInsets.zero,
                     onPressed: _sendMessage,
                   ),
                 ),

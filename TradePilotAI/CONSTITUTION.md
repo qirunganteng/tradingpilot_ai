@@ -22,9 +22,9 @@ PROJECT NAME
 
 TradePilot AI Platform
 
-Client Pertama:
+Client Utama:
 
-TradePilot AI Super-App (Flutter)
+TradePilot AI Super-App & AI Browser (Flutter)
 
 ==========================================================
 
@@ -34,12 +34,12 @@ TradePilot bukan sekadar aplikasi mobile.
 
 TradePilot bukan browser biasa.
 
-TradePilot adalah Super-App & AI Trading Workspace 
-Lintas Platform.
+TradePilot adalah Super-App, Native Cross-Platform Browser, 
+& AI Trading Workspace Lintas Platform.
 
-Android hanyalah salah satu Target.
+Android hanyalah salah satu Target Primary Mobile.
 
-Windows Desktop hanyalah salah satu Target.
+Windows Desktop hanyalah salah satu Target Primary Desktop.
 
 iOS & Desktop Platform lainnya adalah Target Paralel.
 
@@ -50,21 +50,16 @@ pengalaman pengguna yang sama.
 
 PROJECT GOAL
 
-Membangun Trading Workspace profesional
-yang dapat berjalan di berbagai platform
-secara responsif, modular, dan berkinerja tinggi.
+Membangun AI Trading Browser & Workspace profesional
+yang berjalan di berbagai platform secara responsif,
+modular, dan berkinerja tinggi.
 
-Target Platform
-
-Windows Desktop (Primary Desktop)
-
-Android (Primary Mobile)
-
-iOS
-
-macOS (future)
-
-Linux (future)
+Target Platform:
+- Windows Desktop (Primary Desktop)
+- Android (Primary Mobile)
+- iOS
+- macOS (future)
+- Linux (future)
 
 ==========================================================
 
@@ -86,74 +81,104 @@ ARCHITECTURE & TECH STACK
 
 TradePilot Frontend dibangun menggunakan FLUTTER.
 
-Core Framework:
+Core Framework & Libraries:
 - Framework: Flutter SDK
 - State Management: Flutter Riverpod
 - HTTP Client: Dio
 - WebView Engine: flutter_inappwebview
 - Window Management: window_manager
 - Split Layout Engine: multi_split_view
-- Data Grid: PlutoGrid
+- Data Grid Engine: PlutoGrid
 
 ==========================================================
 
-MODULAR STRUCTURE (FEATURE-FIRST)
+MODULAR STRUCTURE & MASTER FEATURE MAPPING (FEATURE-FIRST)
 
 Arsitektur aplikasi WAJIB menggunakan pendekatan Feature-First.
+Setiap fitur dieksekusi berdasarkan skala prioritas (★1 - ★5).
 
-Setiap modul fitur terisolasi dan mandiri, terdiri dari:
+1. BROWSER CORE & WORKSPACE ENGINE MODULE
+   - Multi Tab (★★★★★) & Vertical Tabs (★★★★★)[cite: 2]
+   - Tab Groups (★★★★★) & Workspace Management (★★★★★)[cite: 2]
+   - Split View Layout (★★★★★) & Session Manager (★★★★★)[cite: 2]
+   - Bookmarks (★★★★☆) & History (★★★★★)[cite: 2]
+   - Downloads (★★★★☆) & Fullscreen Mode (★★★★☆)[cite: 2]
+   - Incognito Mode (★★★★☆) & Security (Password & Cookie Manager) (★★★★☆)[cite: 2]
+   - Permissions & Native Media Utilities (PDF Viewer, Screenshot, Screen Recorder) (★★★★☆)[cite: 2]
+   - Workspace & Data Sync (★★★★☆)[cite: 2]
+   - Secure Broker Login (★★★★★) & Multi Broker Workspace (★★★★★)
+     [lihat SECURITY & PRIVACY -> Trading-Specific Security]
 
-1. Trading Workspace
-   - Chart TradingView via WebView
-   - Real-time Market Data & Orderbook
-   - High-performance PlutoGrid untuk Journal & Trade History
+2. AI PILOT & ANALYTICS MODULE
+   - AI Chat (★★★★★) & Screen Understanding (★★★★☆)[cite: 2]
+   - Chart Analysis (★★★★★) & Pattern Detection (★★★★★)[cite: 2]
+   - Market Scanner (★★★★★) & Market Sentiment Engine (★★★★★)[cite: 2]
+   - Pair Recommendation (★★★★★) & Risk Analysis (★★★★★)[cite: 2]
+   - Smart News (★★★★★) & Economic Calendar AI (★★★★★)[cite: 2]
+   - Trading Journal AI & Trade Review (★★★★☆)[cite: 2]
+   - AI Coach (★★★★☆), AI Memory (★★★☆☆), & Voice Assistant (★★★★☆)[cite: 2]
+   - AI Watchlist (★★★☆☆)[cite: 2]
+   - Chart Snapshot AI Analysis, capture chart aktif untuk dianalisis
+     AI (★★★★★)
+   - Browser-AI Context Awareness, AI memahami konten/tab yang
+     sedang aktif tanpa user copy-paste manual (★★★★★)
 
-2. AI Pilot Workspace
-   - Streaming Chat Interface (via Cloudflare AI Gateway)
-   - Chart & Technical Pattern Analysis
-   - Prompt & Model Management
+3. TRADING TERMINAL & CALCULATORS MODULE
+   - Dashboard (★★★★★) & Watchlist (★★★★★)[cite: 2]
+   - Price Alerts (★★★★★) & News Alerts (★★★★★)[cite: 2]
+   - Journal (★★★★★) & Performance Analytics (★★★★★)[cite: 2]
+   - Trade Replay (★★★★☆) & Strategy Notes (★★★★☆)[cite: 2]
+   - Trading Calculators Suite:
+     * Lot Size (★★★★★)[cite: 2]
+     * Risk/Reward (★★★★★)[cite: 2]
+     * Pip Calculator (★★★★★)[cite: 2]
+     * Margin Calculator (★★★★★)[cite: 2]
+     * Profit Calculator (★★★★★)[cite: 2]
+     * Drawdown Calculator (★★★★★)[cite: 2]
+     * Compounding Calculator (★★★★☆)[cite: 2]
+     * Swap Calculator (★★★★☆)[cite: 2]
+     * Currency Converter (★★★☆☆)[cite: 2]
 
-3. Social & Community
-   - Chat Room Trader
-   - Signal Sharing & Copy Trade Signals
+4. SOCIAL, COMMUNITY & LEARNING MODULE
+   - Trader Chat Rooms (★★★★★) & Chart Sharing (★★★★★)[cite: 2]
+   - Mentor System (★★★★★) & Leaderboard (★★★★★)[cite: 2]
+   - Workspace Sharing (★★★★★)[cite: 2]
+   - Learning Academy Suite (Beginner ★★★★★, Intermediate ★★★★★, Advanced ★★★★★)[cite: 2]
+   - Paper Trading Simulator & Relaxation Player Service (Lofi)
 
-4. Learning & Entertainment
-   - Educational Hub & Paper Trading
-   - Lofi Radio / Relaxation Player Service
-
-5. Core Infrastructure
-   - Centralized Dio Client & Network Services
-   - State Management Providers (Riverpod)
-   - Theme Data (Modern Dark Trading Style)
+5. CORE INFRASTRUCTURE MODULE
+   - Centralized Network Services (Dio + Interceptors)
+   - Global State Providers (Riverpod)
+   - Theme System (Modern Dark Trading Style)
    - Cross-Platform Hardware Abstractions
 
 ==========================================================
 
 CLIENT RESPONSIBILITY
 
-Flutter Client TIKAD BOLEH melakukan pemrosesan berat AI.
+Flutter Client TIDAK BOLEH melakukan pemrosesan berat AI.
 
 Tugas Flutter Client:
 - Rendering UI secara reaktif & responsif
 - Managing Local Application State via Riverpod
-- Rendering Webview (TradingView Chart)
+- Rendering Multi-Tab WebView (TradingView Chart & Browsing)
 - Audio/Media Streaming handling (Lofi Radio)
-- Capture Screenshot & Image Picker
+- Capture Screenshot & Media Recording
 - Receiving & Rendering AI Streaming Responses
-- Managing Window Decorations (Titlebar, Tray, IPC)
+- Managing Window Decorations (Titlebar, Tray, Split Panels)
 
 ==========================================================
 
 BACKEND STACK
 
-Semua Pemrosesan AI dan Central Data Storage 
+Semua Pemrosesan AI, Synchronization, dan Central Data Storage 
 WAJIB berjalan di Cloudflare Stack.
 
 Backend Component:
-- Cloudflare Workers (API Gateway & Serverless Logic)
+- Cloudflare Workers (API Gateway, Auth & Serverless Logic)
 - Cloudflare AI Gateway (LLM Router: Gemini, OpenAI, Claude, DeepSeek, Qwen)
-- Cloudflare D1 (Relational Database)
-- Cloudflare R2 (Object Storage / Screenshots / Media)
+- Cloudflare D1 (Relational Database: User, History, Session, Bookmarks)
+- Cloudflare R2 (Object Storage: Screenshots, Media, Workspace Exports)
 
 ==========================================================
 
@@ -169,13 +194,40 @@ UI Framework:
 
 WEBVIEW ENGINE
 
-Penyajian chart dan web content HARUS dipisah 
-melalui abstraksi WebView yang fleksibel.
+Penyajian chart, browser core, dan web content HARUS dipisah 
+melalui abstraksi WebView yang fleksibel dan stabil.
 
 Implementation:
 - Windows Desktop -> flutter_inappwebview (Edge Chromium Engine)
 - Android -> flutter_inappwebview (Android System WebView)
 - iOS / macOS -> flutter_inappwebview (WKWebView)
+
+==========================================================
+
+BROWSER ENGINE CORE CAPABILITIES
+
+Browser Core Module (lib/features/browser_core/) WAJIB memenuhi
+kapabilitas engine berikut, diwariskan dari native rendering engine
+(Chromium/Edge/WebKit) melalui flutter_inappwebview. Client TIDAK
+BOLEH menambah dependency WebView kedua di luar abstraksi ini.
+
+Rendering & Networking:
+- Modern Rendering Engine (HTML5/CSS3/JS) (★★★★★)
+- GPU Acceleration untuk rendering cepat (★★★★★)
+- WebGL WAJIB aktif untuk kebutuhan Trading Charts (★★★★★)
+- HTTP/2 & HTTP/3 untuk networking cepat (★★★★★)
+- WebSocket WAJIB stabil untuk data realtime (★★★★★)
+
+Stability & Isolation:
+- Multi Process, setiap tab terisolasi (★★★★★)
+- Sandbox Isolation per proses tab (★★★★★)
+- Crash Recovery, tab WAJIB bisa direstore otomatis (★★★★★)
+- Memory Optimization, efisiensi RAM per tab (★★★★★)
+
+Catatan: Kapabilitas di atas bergantung pada native engine
+per-platform (lihat WEBVIEW ENGINE). Jika suatu platform tidak
+mendukung salah satu kapabilitas, WAJIB didokumentasikan sebagai
+Known Limitation di docs/, bukan dilewati diam-diam.
 
 ==========================================================
 
@@ -210,25 +262,72 @@ Local Cache:
 
 ==========================================================
 
-SECURITY
+SECURITY & PRIVACY
 
+Prinsip Dasar:
 - API Key platform/AI TIDAK BOLEH ditanam di Client.
 - Authentication & Access Tokens WAJIB dikelola Backend (Cloudflare Workers).
 - Environment Variable dikelola dengan secure build configs.
+
+Connection & Transport Security (WAJIB, non-negotiable):
+- HTTPS Only, force HTTPS di seluruh navigasi (★★★★★)
+- TLS 1.3 untuk seluruh koneksi terenkripsi (★★★★★)
+- Certificate Validation, verifikasi sertifikat setiap koneksi (★★★★★)
+- Safe Browsing, peringatan otomatis untuk phishing/malicious site (★★★★★)
+- Site Isolation, isolasi proses per-situs (★★★★★)
+- Certificate Pinning WAJIB untuk melindungi domain layanan sendiri
+  (Cloudflare Workers/backend TradePilot) (★★★★☆)
+
+Permission & Access Control:
+- Permission Manager WAJIB mengatur akses Camera/Mic/Location secara
+  eksplisit per situs, bukan izin global (★★★★★)
+
+Privacy Features:
+- Incognito Mode, tidak menyimpan history/cache sama sekali (★★★★★)
+- Tracking Protection, blokir tracker pihak ketiga secara default (★★★★☆)
+- Fingerprint Protection, mengurangi browser fingerprinting (★★★★☆)
+- DNS over HTTPS, enkripsi query DNS (★★★★☆)
+
+Trading-Specific Security (prioritas tertinggi, menyangkut dana user):
+- Secure Broker Login, kredensial broker WAJIB dienkripsi & tidak
+  pernah melewati AI Gateway atau logging pihak ketiga (★★★★★)
+- Multi Broker Workspace, sesi tiap broker terisolasi satu sama lain,
+  tidak boleh terjadi cross-session leakage (★★★★★)
+
+==========================================================
+
+PERFORMANCE OPTIMIZATION
+
+Browser Core WAJIB menerapkan strategi optimisasi berikut agar
+tetap ringan meski multi-tab, multi-broker, dan AI Chat berjalan
+bersamaan:
+
+- Smart Cache untuk loading halaman lebih cepat (★★★★★)
+- Tab Sleeping, tab tidak aktif WAJIB di-suspend untuk hemat RAM
+  (★★★★★)
+- Memory Saver, reduksi penggunaan memori secara agresif saat
+  banyak tab terbuka (★★★★★)
+- Battery Saver, penurunan konsumsi daya di perangkat mobile/laptop
+  (★★★★☆)
+
+Target performa mengikuti Success Metrics di PRD (Time to First
+Chart < 2 detik, Tab Switching Latency < 100ms). Fitur di atas
+TIDAK BOLEH mengorbankan kapabilitas WebGL/HTTP realtime yang
+dibutuhkan Trading Chart.
 
 ==========================================================
 
 WORKSPACE DESIGN & UX GOAL
 
 Seluruh layout Desktop & Tablet WAJIB menggunakan konsep 
-Workbench Resizable Layout.
+Workbench Resizable Split Layout.
 
 Layout Design Reference:
 Visual Studio Code + TradingView + Professional Trading Terminal
 
 Komponen Utama Layout:
 - Activity Bar (Navigation & Switcher)
-- Side Bar (Features Tools & Community Channels)
+- Side Bar (Features Tools, Browser Tabs, & Community Channels)
 - Main Workspace (Resizable Split Panels: Chart, AI Chat, Orderbook)
 - Bottom Status Bar (Lofi Player Status, System Metrics)
 
@@ -259,7 +358,7 @@ PROJECT STRUCTURE
 tradepilot-platform/
 │
 ├── backend/            # Cloudflare Workers, D1, R2, AI Gateway
-├── docs/               # Architecture Blueprint & Prompt History
+├── docs/               # Architecture Blueprint & CONSTITUTION
 ├── tools/              # Build Scripts & Automation
 │
 └── app/                # Main Flutter Application
@@ -269,11 +368,37 @@ tradepilot-platform/
     ├── pubspec.yaml
     └── lib/
         ├── core/       # Network (Dio), Theme, Constants, Utils
+        │   └── security/   # Encryption, Auth Token Handling, Secure Storage
         └── features/   # Feature-First Modules
-            ├── trading_workspace/
+            ├── browser_core/
+            ├── trading_terminal/
             ├── ai_pilot/
+            ├── calculators/
             ├── social_community/
-            └── learning_lofi/
+            └── learning_hub/
+
+==========================================================
+
+CLIENT ARCHITECTURE LAYERS
+
+Setiap fitur di lib/features/ WAJIB terpetakan ke salah satu layer
+berikut. Layer ini BUKAN folder baru, melainkan tanggung jawab
+logis di dalam struktur Feature-First yang sudah ditetapkan di
+PROJECT STRUCTURE:
+
+- UI Layer -> Widgets/Layout di setiap feature/*/presentation/
+- Browser Layer -> Engine/Tab/Session, tinggal di features/browser_core/
+- AI Layer -> Analysis/Chat, tinggal di features/ai_pilot/
+- Trading Layer -> Dashboard/Journal, tinggal di features/trading_terminal/
+  dan features/calculators/
+- Security Layer -> Encryption/Auth, tinggal di lib/core/security/
+  (WAJIB dipisah dari lib/core/network/, tidak boleh dicampur
+  dengan Dio Interceptors)
+- Cloud Layer -> Sync/API, tinggal di lib/core/network/ yang
+  berkomunikasi ke backend/ (Cloudflare Workers)
+
+Fitur yang tidak bisa dipetakan ke salah satu layer di atas WAJIB
+dipertanyakan ulang melalui NEW FEATURE RULE sebelum dikerjakan.
 
 ==========================================================
 

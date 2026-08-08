@@ -2,6 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:window_manager/window_manager.dart';
 
+/// Shared 28px app mark used both in the native desktop title bar and the
+/// web/mobile fallback top bar, so the brand mark is identical everywhere.
+class AppBrandMark extends StatelessWidget {
+  final double size;
+  const AppBrandMark({super.key, this.size = 22});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/images/app_icon.png',
+      height: size,
+      width: size,
+      fit: BoxFit.contain,
+    );
+  }
+}
+
 class CustomTitleBar extends StatelessWidget {
   const CustomTitleBar({super.key});
 
@@ -13,13 +30,10 @@ class CustomTitleBar extends StatelessWidget {
           Expanded(
             child: MoveWindow(
               child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                padding: EdgeInsets.symmetric(horizontal: 12.0),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    'TradePilot AI',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  child: AppBrandMark(size: 20),
                 ),
               ),
             ),

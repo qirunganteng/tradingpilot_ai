@@ -1,13 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'dart:io' show Platform;
 
 import 'core/window_management/custom_title_bar.dart';
+import 'core/window_management/browser_fullscreen.dart';
 import 'core/navigation/activity_bar.dart';
-import 'core/navigation/sidebar.dart';
 import 'core/navigation/workspace_content.dart';
-import 'features/learning_lofi/presentation/mini_player_view.dart';
+import 'core/updater/update_checker.dart';
 
 class TradePilotApp extends ConsumerWidget {
   const TradePilotApp({super.key});
@@ -21,65 +22,172 @@ class TradePilotApp extends ConsumerWidget {
         brightness: Brightness.dark,
         colorSchemeSeed: Colors.blueAccent,
         useMaterial3: true,
+        visualDensity: VisualDensity.compact,
       ),
       home: const MainWorkspace(),
     );
   }
 }
 
-class MainWorkspace extends StatefulWidget {
+class MainWorkspace extends ConsumerStatefulWidget {
   const MainWorkspace({super.key});
 
   @override
-  State<MainWorkspace> createState() => _MainWorkspaceState();
+  ConsumerState<MainWorkspace> createState() => _MainWorkspaceState();
 }
 
-class _MainWorkspaceState extends State<MainWorkspace> {
-  String? _selectedSidebarItem;
+class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
+  bool _isWebFullscreen = false;
+  final FocusNode _escapeFocusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _escapeFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDesktop = !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
+    // Note: the old fixed-width, always-empty "Sidebar" panel was removed.
+    // WorkspaceContentBuilder below now renders one persistent 3-column
+    // layout (Trading/Community/Learning dock | Browser | AI dock) — the
+    // browser never gets unmounted when switching activity bar icons.
     Widget mainContent = Row(
       children: [
         // Activity Bar (Left Navigation)
         const ActivityBar(),
-        // Sidebar (Feature-specific items)
-        Sidebar(
-          items: const [], // Will be populated based on workspace mode
-          selectedItemId: _selectedSidebarItem,
-        ),
         // Main Content Area
         Expanded(
-          child: Column(
-            children: [
-              Expanded(
-                child: const WorkspaceContentBuilder(),
-              ),
-              const MiniPlayerView(), // Bottom Bar (Lofi Player)
-            ],
-          ),
+          child: const WorkspaceContentBuilder(),
         ),
       ],
     );
 
     Widget scaffoldBody = Column(
       children: [
-        if (isDesktop) const CustomTitleBar(),
+        // On the real Windows/macOS/Linux desktop build this is the native
+        // window title bar (minimize/maximize/close already wired to the OS
+        // window via window_manager/bitsdojo_window). Everywhere else (web,
+        // mobile) we render a matching top bar with the closest equivalents.
+        if (isDesktop)
+          const CustomTitleBar()
+        else
+          _FallbackTopBar(
+            isFullscreen: _isWebFullscreen,
+            onMinimize: _handleMinimize,
+            onToggleMaximize: _handleToggleMaximize,
+          ),
         Expanded(child: mainContent),
       ],
     );
 
-    if (isDesktop) {
-      return Scaffold(
-        body: scaffoldBody,
+    // Update-available banner sits above everything else, non-blocking --
+    // see core/updater/update_checker.dart.
+    scaffoldBody = Column(
+      children: [
+        const UpdateBanner(),
+        Expanded(child: scaffoldBody),
+      ],
+    );
+
+    // Escape closes whichever fullscreen mode is active: the browser's own
+    // "maximize" (docks hidden) first, then a real web/OS fullscreen.
+    return Focus(
+      focusNode: _escapeFocusNode,
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.escape) {
+          return KeyEventResult.ignored;
+        }
+        var handled = false;
+        if (ref.read(browserMaximizedProvider)) {
+          ref.read(browserMaximizedProvider.notifier).toggle();
+          handled = true;
+        }
+        if (kIsWeb && isBrowserFullscreen) {
+          toggleBrowserFullscreen();
+          setState(() => _isWebFullscreen = false);
+          handled = true;
+        }
+        return handled ? KeyEventResult.handled : KeyEventResult.ignored;
+      },
+      child: Scaffold(body: scaffoldBody),
+    );
+  }
+
+  void _handleMinimize() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          kIsWeb
+              ? "Browsers don't let a page minimize its own tab/window — use the browser's own minimize button, or run the Windows/macOS/Linux desktop build for a real window control."
+              : 'Minimize is available on the Windows/macOS/Linux desktop build.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleToggleMaximize() async {
+    if (kIsWeb) {
+      await toggleBrowserFullscreen();
+      setState(() => _isWebFullscreen = isBrowserFullscreen);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Maximize is available on the Windows/macOS/Linux desktop build.')),
       );
     }
+  }
+}
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('TradePilot AI')),
-      body: scaffoldBody,
+/// Top bar used when the real OS window title bar isn't available (web,
+/// mobile). Mirrors the desktop title bar's brand mark + minimize/maximize
+/// controls as closely as each platform allows.
+class _FallbackTopBar extends StatelessWidget {
+  final bool isFullscreen;
+  final VoidCallback onMinimize;
+  final VoidCallback onToggleMaximize;
+
+  const _FallbackTopBar({
+    required this.isFullscreen,
+    required this.onMinimize,
+    required this.onToggleMaximize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 32,
+      color: const Color(0xFF1E1E1E),
+      child: Row(
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: AppBrandMark(size: 18),
+          ),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.minimize, size: 16, color: Colors.grey),
+            tooltip: 'Minimize',
+            onPressed: onMinimize,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 32),
+          ),
+          IconButton(
+            icon: Icon(
+              isFullscreen ? Icons.fullscreen_exit : Icons.crop_square,
+              size: 14,
+              color: Colors.grey,
+            ),
+            tooltip: isFullscreen ? 'Restore (Esc)' : 'Maximize',
+            onPressed: onToggleMaximize,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 32),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
     );
   }
 }
