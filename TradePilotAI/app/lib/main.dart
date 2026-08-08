@@ -9,6 +9,7 @@ import 'core/window_management/window_setup.dart';
 import 'core/window_management/tray_setup.dart';
 
 void main() async {
+  // CI trigger check -- Fase 8.
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Window Management & System Tray for Desktop
