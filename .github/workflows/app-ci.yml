@@ -1,0 +1,105 @@
+name: Flutter App - CI & Release
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["TradePilotAI/app/**"]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: ["main"]
+    paths: ["TradePilotAI/app/**"]
+
+defaults:
+  run:
+    working-directory: TradePilotAI/app
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: dart format --output=none --set-exit-if-changed lib || true
+
+  # Only runs on an actual version tag push (e.g. `git tag v1.1.0 && git push
+  # --tags`) -- this is what core/updater/update_checker.dart polls for via
+  # the GitHub Releases API, so a tagged build here is what "checking for
+  # updates" in the app actually finds.
+  build-windows:
+    needs: analyze
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Zip Windows build
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath TradePilot-Windows-${{ github.ref_name }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: TradePilotAI/app/TradePilot-Windows-${{ github.ref_name }}.zip
+
+  build-web:
+    needs: analyze
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build web --release
+      - name: Zip web build
+        run: cd build/web && zip -r ../../TradePilot-Web-${{ github.ref_name }}.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: TradePilotAI/app/TradePilot-Web-${{ github.ref_name }}.zip
+
+  build-android:
+    needs: analyze
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-build
+          path: TradePilotAI/app/build/app/outputs/flutter-apk/app-release.apk
+
+  release:
+    needs: [build-windows, build-web, build-android]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/windows-build/*.zip
+            artifacts/web-build/*.zip
+            artifacts/android-build/*.apk
+          generate_release_notes: true
