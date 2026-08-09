@@ -42,12 +42,17 @@ class _BrowserTab {
   bool isSecure = false;
   bool isBookmarked = false;
   int zoomPercent = 100;
+  // Fase PRD 3.3.1 / 2.2.11 -- Incognito Mode: no history recording, no
+  // persistent cookie/storage (via InAppWebViewSettings.incognito), and a
+  // distinct visual so it's obvious which tabs are private.
+  final bool isIncognito;
 
   _BrowserTab({
     required this.id,
     this.url = '',
     this.title = 'New Tab',
     this.started = false,
+    this.isIncognito = false,
   });
 }
 
@@ -80,6 +85,9 @@ class _BrowserViewState extends State<BrowserView> {
   late List<_QuickLink> _bookmarks = List.of(_kQuickLinks);
   final List<_HistoryEntry> _history = [];
   final List<_DownloadEntry> _downloads = [];
+  // Fase PRD Keyboard Shortcuts: Ctrl+Shift+T reopens the last closed tab --
+  // small LIFO stack of what a closed tab's url/title/incognito state was.
+  final List<({String url, String title, bool isIncognito})> _recentlyClosed = [];
 
   final TextEditingController _addressController = TextEditingController();
   final FocusNode _addressFocusNode = FocusNode();
@@ -110,12 +118,13 @@ class _BrowserViewState extends State<BrowserView> {
   // Tab management
   // ---------------------------------------------------------------------
 
-  void _openNewTab({String url = '', bool started = false, String? title}) {
+  void _openNewTab({String url = '', bool started = false, String? title, bool isIncognito = false}) {
     final tab = _BrowserTab(
       id: _newId(),
       url: url,
       started: started,
-      title: title ?? (started ? 'Loading…' : 'New Tab'),
+      title: title ?? (started ? 'Loading…' : (isIncognito ? 'New Incognito tab' : 'New Tab')),
+      isIncognito: isIncognito,
     );
     setState(() {
       _tabs.add(tab);
@@ -125,6 +134,12 @@ class _BrowserViewState extends State<BrowserView> {
   }
 
   void _closeTab(int index) {
+    final closed = _tabs[index];
+    if (closed.started && closed.url.isNotEmpty) {
+      _recentlyClosed.add((url: closed.url, title: closed.title, isIncognito: closed.isIncognito));
+      if (_recentlyClosed.length > 10) _recentlyClosed.removeAt(0);
+    }
+
     if (_tabs.length == 1) {
       // Never close the very last tab — reset it to a blank new tab instead,
       // matching how most browsers behave on the final tab.
@@ -143,6 +158,14 @@ class _BrowserViewState extends State<BrowserView> {
       }
       _addressController.text = _activeTab.url;
     });
+  }
+
+  /// Ctrl+Shift+T — reopens the most recently closed tab, exactly where it
+  /// left off.
+  void _reopenClosedTab() {
+    if (_recentlyClosed.isEmpty) return;
+    final last = _recentlyClosed.removeLast();
+    _openNewTab(url: last.url, started: true, title: last.title, isIncognito: last.isIncognito);
   }
 
   void _activateTab(int index) {
@@ -167,6 +190,12 @@ class _BrowserViewState extends State<BrowserView> {
       url = 'https://www.google.com/search?q=${Uri.encodeComponent(url)}';
     } else if (!RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(url)) {
       url = 'https://$url';
+    } else if (url.startsWith('http://')) {
+      // PRD 3.2.1 "HTTPS Only": auto-upgrade any explicit http:// entry to
+      // https:// before it ever reaches the WebView. If the site genuinely
+      // has no HTTPS, the load will fail visibly rather than silently
+      // downgrading security.
+      url = url.replaceFirst('http://', 'https://');
     }
 
     setState(() {
@@ -284,22 +313,90 @@ class _BrowserViewState extends State<BrowserView> {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
         final ctrl = HardwareKeyboard.instance.isControlPressed ||
             HardwareKeyboard.instance.isMetaPressed;
+        final shift = HardwareKeyboard.instance.isShiftPressed;
+        final key = event.logicalKey;
+
+        // F5 / F11 don't need Ctrl -- check these first.
+        if (key == LogicalKeyboardKey.f5) {
+          _reload(_activeTab);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.f11) {
+          ProviderScope.containerOf(context, listen: false).read(browserMaximizedProvider.notifier).toggle();
+          return KeyEventResult.handled;
+        }
         if (!ctrl) return KeyEventResult.ignored;
 
-        if (event.logicalKey == LogicalKeyboardKey.keyT) {
+        if (shift && key == LogicalKeyboardKey.keyT) {
+          _reopenClosedTab();
+          return KeyEventResult.handled;
+        }
+        if (shift && key == LogicalKeyboardKey.keyN) {
+          _openNewTab(isIncognito: true);
+          return KeyEventResult.handled;
+        }
+        if (shift && key == LogicalKeyboardKey.delete) {
+          setState(() {
+            _history.clear();
+            _downloads.clear();
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Browsing history and downloads cleared.'), duration: Duration(seconds: 2)),
+          );
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.tab) {
+          setState(() {
+            final delta = shift ? -1 : 1;
+            _activeIndex = (_activeIndex + delta) % _tabs.length;
+            if (_activeIndex < 0) _activeIndex += _tabs.length;
+            _addressController.text = _activeTab.url;
+          });
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.keyT) {
           _openNewTab();
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.keyW) {
+        if (key == LogicalKeyboardKey.keyW) {
           _closeTab(_activeIndex);
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.keyL) {
+        if (key == LogicalKeyboardKey.keyL) {
           _addressFocusNode.requestFocus();
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.keyR) {
+        if (key == LogicalKeyboardKey.keyR) {
           _reload(_activeTab);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.keyF) {
+          _findInPage(_activeTab);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.keyJ) {
+          _showDownloadsDialog(context);
+          return KeyEventResult.handled;
+        }
+        // Ctrl+1..8 jump to that tab, Ctrl+9 always jumps to the last tab --
+        // identical semantics to Chrome/Firefox.
+        const digitKeys = [
+          LogicalKeyboardKey.digit1,
+          LogicalKeyboardKey.digit2,
+          LogicalKeyboardKey.digit3,
+          LogicalKeyboardKey.digit4,
+          LogicalKeyboardKey.digit5,
+          LogicalKeyboardKey.digit6,
+          LogicalKeyboardKey.digit7,
+          LogicalKeyboardKey.digit8,
+        ];
+        final digitIndex = digitKeys.indexOf(key);
+        if (digitIndex != -1) {
+          if (digitIndex < _tabs.length) _activateTab(digitIndex);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.digit9) {
+          _activateTab(_tabs.length - 1);
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -409,20 +506,26 @@ class _BrowserViewState extends State<BrowserView> {
                     margin: const EdgeInsets.only(top: 6, right: 2),
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     decoration: BoxDecoration(
-                      color: isActive ? const Color(0xFF252526) : Colors.transparent,
+                      color: t.isIncognito
+                          ? (isActive ? const Color(0xFF2B2440) : const Color(0xFF211D30))
+                          : (isActive ? const Color(0xFF252526) : Colors.transparent),
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
                       border: isActive
-                          ? Border.all(color: Colors.grey[800]!, width: 0.5)
+                          ? Border.all(color: t.isIncognito ? Colors.deepPurple[300]! : Colors.grey[800]!, width: 0.5)
                           : null,
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          t.isLoading
-                              ? Icons.autorenew
-                              : (t.isSecure ? Icons.lock_outline : Icons.public),
+                          t.isIncognito
+                              ? Icons.visibility_off_outlined
+                              : (t.isLoading
+                                  ? Icons.autorenew
+                                  : (t.isSecure ? Icons.lock_outline : Icons.public)),
                           size: 13,
-                          color: isActive ? Colors.grey[300] : Colors.grey[600],
+                          color: t.isIncognito
+                              ? Colors.deepPurple[200]
+                              : (isActive ? Colors.grey[300] : Colors.grey[600]),
                         ),
                         const SizedBox(width: 6),
                         Expanded(
@@ -584,10 +687,7 @@ class _BrowserViewState extends State<BrowserView> {
                   );
                   break;
                 case 'new_incognito':
-                  _openNewTab(title: 'Incognito');
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Opened as a plain new tab — private browsing isn\'t modeled here yet.')),
-                  );
+                  _openNewTab(isIncognito: true);
                   break;
                 case 'history':
                   _showHistoryDialog(context);
@@ -955,6 +1055,15 @@ class _BrowserViewState extends State<BrowserView> {
         useOnDownloadStart: true,
         javaScriptCanOpenWindowsAutomatically: true,
         supportMultipleWindows: true,
+        // PRD 2.2.11 / 3.3.1 Incognito Mode: no persistent cookies/local
+        // storage/cache for this tab's session (Android/iOS support this
+        // natively; other platforms fall back gracefully to a normal
+        // session since flutter_inappwebview doesn't expose true profile
+        // isolation there yet -- history recording is still skipped below
+        // regardless of platform, which is the privacy guarantee that
+        // matters most).
+        incognito: tab.isIncognito,
+        cacheEnabled: !tab.isIncognito,
       ),
       onWebViewCreated: (controller) {
         tab.controller = controller;
@@ -1021,9 +1130,10 @@ class _BrowserViewState extends State<BrowserView> {
             tab.isSecure = tab.url.startsWith('https://');
           }
           if (identical(tab, _activeTab)) _addressController.text = tab.url;
-          // Record real browsing history — skip if this exact URL is still
-          // the most recent entry (e.g. a reload) to avoid spamming dupes.
-          if (tab.url.isNotEmpty && (_history.isEmpty || _history.first.url != tab.url)) {
+          // Record real browsing history — skip entirely for incognito tabs
+          // (PRD 3.3.1), and skip if this exact URL is still the most
+          // recent entry (e.g. a reload) to avoid spamming dupes.
+          if (!tab.isIncognito && tab.url.isNotEmpty && (_history.isEmpty || _history.first.url != tab.url)) {
             _history.insert(0, _HistoryEntry(url: tab.url, title: tab.title, visitedAt: DateTime.now()));
           }
         });
