@@ -20,6 +20,9 @@ cloudflare-worker/.wrangler
 cloudflare-worker/scripts/worker-bundle.mjs
 cloudflare-worker/dist
 
+# --- Cloudflare wrangler cache (any location, e.g. app/.wrangler for Pages deploys) ---
+**/.wrangler/
+
 # --- Umum ---
 .DS_Store
 *.log
