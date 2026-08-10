@@ -14,6 +14,33 @@ class _QuickLink {
   const _QuickLink(this.label, this.url, this.icon);
 }
 
+/// PRD 3.3.2 "Tracking Protection" -- blocks network requests for a short
+/// list of the most common ad/tracker domains via flutter_inappwebview's
+/// native ContentBlocker (same mechanism on every platform that supports
+/// it, no separate native code needed). Applied to every tab, always on --
+/// not a full adblock-grade list, but a real, functioning baseline rather
+/// than a decorative toggle.
+final List<ContentBlocker> _kTrackerBlockList = [
+  'doubleclick.net',
+  'googlesyndication.com',
+  'google-analytics.com',
+  'googletagmanager.com',
+  'facebook.com/tr',
+  'connect.facebook.net',
+  'adservice.google.com',
+  'amazon-adsystem.com',
+  'scorecardresearch.com',
+  'hotjar.com',
+  'criteo.com',
+  'taboola.com',
+  'outbrain.com',
+].map((domain) {
+  return ContentBlocker(
+    trigger: ContentBlockerTrigger(urlFilter: '.*$domain.*'),
+    action: ContentBlockerAction(type: ContentBlockerActionType.BLOCK),
+  );
+}).toList();
+
 const List<_QuickLink> _kQuickLinks = [
   _QuickLink('TradingView', 'https://www.tradingview.com/chart/', Icons.show_chart),
   _QuickLink('Binance', 'https://www.binance.com/en/trade/BTC_USDT', Icons.currency_bitcoin),
@@ -1064,6 +1091,7 @@ class _BrowserViewState extends State<BrowserView> {
         // matters most).
         incognito: tab.isIncognito,
         cacheEnabled: !tab.isIncognito,
+        contentBlockers: _kTrackerBlockList,
       ),
       onWebViewCreated: (controller) {
         tab.controller = controller;
@@ -1361,6 +1389,27 @@ class _BrowserSettingsDialogState extends State<_BrowserSettingsDialog> {
             title: const Text('Send "Do Not Track" requests', style: TextStyle(fontSize: 13)),
             activeColor: Colors.blueAccent,
             dense: true,
+          ),
+          const Divider(height: 24, color: Color(0xFF1E1E1E)),
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cookie_outlined, size: 18, color: Colors.grey),
+            title: const Text('Cookies and site data', style: TextStyle(fontSize: 13)),
+            subtitle: const Text('Clears cookies for every tab in this app', style: TextStyle(fontSize: 11.5, color: Colors.grey)),
+            trailing: TextButton(
+              onPressed: () async {
+                final navigator = Navigator.of(context);
+                final messenger = ScaffoldMessenger.of(context);
+                await CookieManager.instance().deleteAllCookies();
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('All cookies cleared.'), duration: Duration(seconds: 2)),
+                );
+                navigator.pop();
+              },
+              child: const Text('Clear cookies'),
+            ),
           ),
         ]);
       case 1:
