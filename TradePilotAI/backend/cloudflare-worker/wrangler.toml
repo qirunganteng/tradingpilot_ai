@@ -1,23 +1,23 @@
-name = "tradepilot-ai-gateway"
+name = "tradepilot-ai"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "tradepilot_db"
-database_id = "5617dfd6-8b08-42bf-8d78-50d58bf2f1f5"
+database_name = "tradepilot-db"
+database_id = "90fffb94-1b8b-4fdb-ac60-fbfcc3d8db0f"
 
 [[r2_buckets]]
 binding = "CHART_BUCKET"
-bucket_name = "tradepilot-charts"
+bucket_name = "tradepilot-storage"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
 id = "144db6fc267b4f93a9b805417b42e253"
 
 [vars]
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-4o-mini"
 DEEPSEEK_MODEL = "deepseek-chat"

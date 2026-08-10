@@ -23,7 +23,7 @@ class AppConfig {
     );
   }
 
-  static const String defaultGatewayUrl = 'https://tradepilot-ai-gateway.servisand.workers.dev';
+  static const String defaultGatewayUrl = 'https://tradepilot-ai.servisand.workers.dev';
 }
 
 class AppConfigNotifier extends Notifier<AppConfig> {

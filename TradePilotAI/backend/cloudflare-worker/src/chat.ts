@@ -79,7 +79,7 @@ async function* streamGemini(env: Env, prompt: string): AsyncGenerator<string> {
   if (!env.GEMINI_API_KEY) {
     throw new ChatProviderError("GEMINI_API_KEY isn't configured on the backend.", 503);
   }
-  const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.6-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
 
   const response = await fetch(url, {
