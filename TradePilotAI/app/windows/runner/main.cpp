@@ -34,7 +34,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   window.SetQuitOnClose(true);
 
-  auto bdw = bitsdojo_window_configure(BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP);
+  // bitsdojo_window_configure's return value isn't needed here -- the
+  // window customization it enables (custom frame, hide-on-startup) is
+  // applied as a side effect of the call itself. Capturing it as `auto bdw`
+  // (the package's own README/example snippet) trips newer MSVC's
+  // unused-variable warning (C4189), which /WX in this project promotes to
+  // a hard error (C2220).
+  bitsdojo_window_configure(BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP);
 
   ::MSG msg;
   while (::GetMessage(&msg, nullptr, 0, 0)) {
