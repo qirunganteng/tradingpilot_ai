@@ -32,6 +32,20 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
 
+# Recent MSVC toolset updates (VS 18.6 / MSVC 14.51, May 2026) turned the
+# long-standing <experimental/coroutine> deprecation warning into a hard
+# compile error (STL1011). Several plugins this app depends on --
+# flutter_inappwebview_windows chief among them -- still use those headers
+# internally and haven't shipped a fix yet (see
+# https://github.com/pichillilorenzo/flutter_inappwebview/issues/2839 and
+# https://github.com/flutter/flutter/issues/186452). Those plugins' CMake
+# files live in pub-cache, not this repo, so they can't be patched directly;
+# this definition is Microsoft's own documented escape hatch for the error,
+# applied here at the top level so it's inherited by every add_subdirectory()
+# below, including the plugin build rules pulled in via
+# generated_plugins.cmake.
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by
