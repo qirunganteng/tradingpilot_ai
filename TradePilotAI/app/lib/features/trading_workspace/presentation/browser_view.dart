@@ -1,8 +1,43 @@
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:multi_split_view/multi_split_view.dart';
 import '../../../core/navigation/activity_bar.dart';
+import '../services/password_vault.dart';
+import '../services/session_manager.dart';
+import '../services/screenshot_service.dart';
+import '../services/workspace_manager.dart' as ws;
+
+/// PRD 3.3.3 "Fingerprint Protection" -- a lightweight, always-on script
+/// injected before every page's own scripts run. Real anti-fingerprinting
+/// is a deep rabbit hole (canvas/audio/WebGL noise, timing attacks, etc.);
+/// this covers the handful of cheap, high-signal checks sites commonly use
+/// first (navigator.webdriver, a suspiciously-empty plugins list) without
+/// touching canvas/WebGL output, which risks visibly breaking charting
+/// libraries like TradingView that this app depends on rendering
+/// correctly.
+const String _kFingerprintProtectionScript = '''
+(function() {
+  try {
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    if (navigator.plugins && navigator.plugins.length === 0) {
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+    }
+  } catch (e) {}
+})();
+''';
+
+/// PRD 3.2.5 "Safe Browsing" -- a small, illustrative blocklist of known
+/// phishing/malware domain *patterns*. A production deployment should
+/// replace this with a real threat-intel source (e.g. Google Safe
+/// Browsing's Lookup API) -- this hook exists and works end-to-end, it
+/// just isn't backed by a live, constantly-updated feed yet.
+const List<String> _kSafeBrowsingBlocklist = [
+  'phishing-example.com',
+  'malware-test.com',
+];
 
 /// Default homepage used by the Home button and the very first tab.
 const String kBrowserHomeUrl = 'https://www.tradingview.com/chart/';
@@ -73,6 +108,8 @@ class _BrowserTab {
   // persistent cookie/storage (via InAppWebViewSettings.incognito), and a
   // distinct visual so it's obvious which tabs are private.
   final bool isIncognito;
+  // PRD 2.2.3 "Tab Groups" -- null when the tab isn't in any group.
+  String? groupId;
 
   _BrowserTab({
     required this.id,
@@ -82,6 +119,35 @@ class _BrowserTab {
     this.isIncognito = false,
   });
 }
+
+/// PRD 2.2.3 "Tab Groups" -- a named, colored bucket that tabs can be
+/// assigned to (via the tab's right-click / long-press context menu),
+/// with bulk close and collapse/expand so a cluster of related tabs
+/// ("Forex Analysis", "Portfolio", "News"...) can be tucked away as one
+/// small pill without actually closing them.
+class _TabGroup {
+  final String id;
+  String name;
+  Color color;
+  bool isExpanded = true;
+
+  _TabGroup({
+    required this.id,
+    required this.name,
+    required this.color,
+  });
+}
+
+/// A small fixed palette so groups get visibly distinct colors without a
+/// full color-picker UI, cycling once more than this many groups exist.
+const List<Color> _kTabGroupColors = [
+  Colors.blueAccent,
+  Colors.deepPurpleAccent,
+  Colors.tealAccent,
+  Colors.orangeAccent,
+  Colors.pinkAccent,
+  Colors.greenAccent,
+];
 
 class _HistoryEntry {
   final String url;
@@ -116,19 +182,211 @@ class _BrowserViewState extends State<BrowserView> {
   // small LIFO stack of what a closed tab's url/title/incognito state was.
   final List<({String url, String title, bool isIncognito})> _recentlyClosed = [];
 
+  // PRD 2.2.3 "Tab Groups" -- every known group; a tab belongs to one via
+  // _BrowserTab.groupId.
+  final List<_TabGroup> _tabGroups = [];
+
+  // PRD 2.2.5 "Workspace" -- named, switchable sets of tabs.
+  List<ws.Workspace> _workspaces = [];
+  String _activeWorkspaceId = 'default';
+
+  // PRD 2.2.4 "Split View" -- when enabled, the content area shows two
+  // panes side-by-side (or stacked) instead of a single active tab, each
+  // pane independently choosing which open tab it displays.
+  bool _splitViewEnabled = false;
+  Axis _splitAxis = Axis.horizontal;
+  List<int> _splitPaneTabIndex = [0, 0];
+  final MultiSplitViewController _splitController = MultiSplitViewController();
+
   final TextEditingController _addressController = TextEditingController();
   final FocusNode _addressFocusNode = FocusNode();
   final FocusNode _shortcutsFocusNode = FocusNode();
 
   _BrowserTab get _activeTab => _tabs[_activeIndex];
 
+  ws.Workspace get _activeWorkspace => _workspaces.firstWhere(
+        (w) => w.id == _activeWorkspaceId,
+        orElse: () => _workspaces.isNotEmpty ? _workspaces.first : ws.Workspace(id: 'default', name: 'Default'),
+      );
+
+  _TabGroup? _groupFor(String? groupId) {
+    if (groupId == null) return null;
+    for (final g in _tabGroups) {
+      if (g.id == groupId) return g;
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
-    // Default tab is a blank "New Tab" page, exactly like a fresh Chrome
-    // window — TradingView is one click away via the bookmarks bar instead
-    // of being force-loaded on startup.
-    _openNewTab();
+    // PRD 2.2.6 Session Manager + PRD 2.2.5 Workspace: restore whichever
+    // workspace was last active, with whatever tabs were open in it --
+    // falls back to one blank "New Tab" in a fresh "Default" workspace on
+    // first run.
+    _initWorkspacesAndRestore();
+  }
+
+  Future<void> _initWorkspacesAndRestore() async {
+    var loaded = await ws.WorkspaceManager.loadAll();
+    var activeId = await ws.WorkspaceManager.loadActiveId();
+
+    if (loaded.isEmpty) {
+      // First launch with Workspaces: migrate whatever the old
+      // single-session storage had so nobody's open tabs disappear when
+      // this feature ships.
+      final legacy = await SessionManager.restoreSession();
+      final defaultWorkspace = ws.Workspace(
+        id: 'default',
+        name: 'Default',
+        icon: '🧭',
+        tabs: legacy.map((t) => ws.SavedWorkspaceTab(url: t.url, title: t.title)).toList(),
+      );
+      loaded = [defaultWorkspace];
+      activeId = defaultWorkspace.id;
+      await ws.WorkspaceManager.saveAll(loaded);
+      await ws.WorkspaceManager.saveActiveId(activeId);
+    }
+
+    if (activeId == null || !loaded.any((w) => w.id == activeId)) {
+      activeId = loaded.first.id;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _workspaces = loaded;
+      _activeWorkspaceId = activeId!;
+    });
+    _loadWorkspaceTabs(_activeWorkspace);
+  }
+
+  /// Replaces whatever tabs/groups are currently open with the ones saved
+  /// for [workspace] -- used both on first launch and whenever the user
+  /// switches workspaces.
+  void _loadWorkspaceTabs(ws.Workspace workspace) {
+    setState(() {
+      _tabs.clear();
+      _tabGroups.clear();
+      _splitViewEnabled = false;
+      if (workspace.tabs.isEmpty) {
+        _tabs.add(_BrowserTab(id: _newId()));
+      } else {
+        for (final t in workspace.tabs) {
+          _tabs.add(_BrowserTab(id: _newId(), url: t.url, started: true, title: t.title));
+        }
+      }
+      _activeIndex = 0;
+      _addressController.text = _tabs.first.url;
+    });
+  }
+
+  /// Debounced session save -- called after any tab open/close/navigate so
+  /// the *next* app launch (or workspace switch) resumes here. Incognito
+  /// tabs are deliberately excluded (PRD 3.3.1).
+  void _persistSession() {
+    final tabsToSave = _tabs
+        .where((t) => !t.isIncognito && t.started && t.url.isNotEmpty)
+        .map((t) => SavedTab(url: t.url, title: t.title))
+        .toList();
+    SessionManager.saveSession(tabsToSave);
+    if (_workspaces.isEmpty) return;
+    final idx = _workspaces.indexWhere((w) => w.id == _activeWorkspaceId);
+    if (idx == -1) return;
+    _workspaces[idx].tabs = tabsToSave.map((t) => ws.SavedWorkspaceTab(url: t.url, title: t.title)).toList();
+    ws.WorkspaceManager.saveAll(_workspaces);
+  }
+
+  // ---------------------------------------------------------------------
+  // Workspace management (PRD 2.2.5)
+  // ---------------------------------------------------------------------
+
+  Future<void> _switchWorkspace(String id) async {
+    if (id == _activeWorkspaceId || !_workspaces.any((w) => w.id == id)) return;
+    _persistSession(); // save current tabs into the workspace being left
+    setState(() => _activeWorkspaceId = id);
+    await ws.WorkspaceManager.saveActiveId(id);
+    _loadWorkspaceTabs(_activeWorkspace);
+  }
+
+  Future<void> _createWorkspace() async {
+    final nameController = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D30),
+        title: const Text('New workspace', style: TextStyle(fontSize: 15)),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'e.g. Forex Analysis, Crypto, Stocks'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, nameController.text), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    _persistSession(); // flush current workspace before creating/switching
+    final newWorkspace = ws.Workspace(id: 'ws_${DateTime.now().millisecondsSinceEpoch}', name: name.trim());
+    setState(() {
+      _workspaces.add(newWorkspace);
+      _activeWorkspaceId = newWorkspace.id;
+    });
+    await ws.WorkspaceManager.saveAll(_workspaces);
+    await ws.WorkspaceManager.saveActiveId(newWorkspace.id);
+    _loadWorkspaceTabs(newWorkspace);
+  }
+
+  Future<void> _renameWorkspace(ws.Workspace workspace) async {
+    final nameController = TextEditingController(text: workspace.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D30),
+        title: const Text('Rename workspace', style: TextStyle(fontSize: 15)),
+        content: TextField(controller: nameController, autofocus: true, onSubmitted: (v) => Navigator.pop(ctx, v)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, nameController.text), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    setState(() => workspace.name = name.trim());
+    await ws.WorkspaceManager.saveAll(_workspaces);
+  }
+
+  Future<void> _deleteWorkspace(ws.Workspace workspace) async {
+    if (_workspaces.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('At least one workspace must remain.')),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D30),
+        title: const Text('Delete workspace?', style: TextStyle(fontSize: 15)),
+        content: Text('This closes and forgets all tabs saved in "${workspace.name}".', style: const TextStyle(fontSize: 13)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final wasActive = workspace.id == _activeWorkspaceId;
+    setState(() => _workspaces.removeWhere((w) => w.id == workspace.id));
+    await ws.WorkspaceManager.saveAll(_workspaces);
+    if (wasActive) {
+      final next = _workspaces.first;
+      setState(() => _activeWorkspaceId = next.id);
+      await ws.WorkspaceManager.saveActiveId(next.id);
+      _loadWorkspaceTabs(next);
+    }
   }
 
   @override
@@ -136,6 +394,7 @@ class _BrowserViewState extends State<BrowserView> {
     _addressController.dispose();
     _addressFocusNode.dispose();
     _shortcutsFocusNode.dispose();
+    _splitController.dispose();
     super.dispose();
   }
 
@@ -158,6 +417,7 @@ class _BrowserViewState extends State<BrowserView> {
       _activeIndex = _tabs.length - 1;
       _addressController.text = url;
     });
+    _persistSession();
   }
 
   void _closeTab(int index) {
@@ -173,7 +433,9 @@ class _BrowserViewState extends State<BrowserView> {
       setState(() {
         _tabs[index] = _BrowserTab(id: _newId());
         if (_activeIndex == index) _addressController.text = '';
+        _splitPaneTabIndex = [0, 0];
       });
+      _pruneEmptyGroups();
       return;
     }
     setState(() {
@@ -184,6 +446,291 @@ class _BrowserViewState extends State<BrowserView> {
         _activeIndex -= 1;
       }
       _addressController.text = _activeTab.url;
+      // Keep each split pane pointing at a valid, sensible tab after the
+      // index shift above.
+      for (var i = 0; i < _splitPaneTabIndex.length; i++) {
+        if (_splitPaneTabIndex[i] >= _tabs.length) {
+          _splitPaneTabIndex[i] = _tabs.length - 1;
+        } else if (_splitPaneTabIndex[i] > index) {
+          _splitPaneTabIndex[i] -= 1;
+        }
+      }
+    });
+    _pruneEmptyGroups();
+    _persistSession();
+  }
+
+  /// Removes any [_TabGroup] that no tab currently belongs to — e.g. after
+  /// its last member tab was closed.
+  void _pruneEmptyGroups() {
+    final activeGroupIds = _tabs.map((t) => t.groupId).whereType<String>().toSet();
+    final before = _tabGroups.length;
+    _tabGroups.removeWhere((g) => !activeGroupIds.contains(g.id));
+    if (_tabGroups.length != before && mounted) setState(() {});
+  }
+
+  // ---------------------------------------------------------------------
+  // Tab Groups (PRD 2.2.3)
+  // ---------------------------------------------------------------------
+
+  Future<void> _showTabContextMenu(Offset? globalPosition, int index) async {
+    final tab = _tabs[index];
+    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final position = globalPosition ?? overlay.localToGlobal(Offset.zero);
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(position & const Size(1, 1), Offset.zero & overlay.size),
+      color: const Color(0xFF2D2D30),
+      items: [
+        const PopupMenuItem(
+          value: 'new_group',
+          height: 32,
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Text('Add tab to new group', style: TextStyle(fontSize: 12.5)),
+        ),
+        for (final g in _tabGroups)
+          PopupMenuItem(
+            value: 'group_${g.id}',
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Container(width: 8, height: 8, decoration: BoxDecoration(color: g.color, shape: BoxShape.circle)),
+                const SizedBox(width: 8),
+                Text('Add to "${g.name}"', style: const TextStyle(fontSize: 12.5)),
+              ],
+            ),
+          ),
+        if (tab.groupId != null)
+          const PopupMenuItem(
+            value: 'ungroup',
+            height: 32,
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: Text('Remove from group', style: TextStyle(fontSize: 12.5)),
+          ),
+        const PopupMenuDivider(height: 8),
+        PopupMenuItem(
+          value: 'split',
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(_splitViewEnabled ? 'Show this tab in split view' : 'Open in split view', style: const TextStyle(fontSize: 12.5)),
+        ),
+        const PopupMenuDivider(height: 8),
+        const PopupMenuItem(
+          value: 'close',
+          height: 32,
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Text('Close tab', style: TextStyle(fontSize: 12.5)),
+        ),
+      ],
+    );
+    if (selected == null) return;
+    if (selected == 'new_group') {
+      await _createGroupWithTab(index);
+    } else if (selected == 'ungroup') {
+      setState(() => tab.groupId = null);
+      _pruneEmptyGroups();
+    } else if (selected == 'close') {
+      _closeTab(index);
+    } else if (selected == 'split') {
+      _openTabInSplit(index);
+    } else if (selected.startsWith('group_')) {
+      setState(() => tab.groupId = selected.substring('group_'.length));
+    }
+  }
+
+  Future<void> _createGroupWithTab(int index) async {
+    final nameController = TextEditingController(text: 'New group');
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D30),
+        title: const Text('New tab group', style: TextStyle(fontSize: 15)),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'e.g. Forex Analysis'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, nameController.text), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    final color = _kTabGroupColors[_tabGroups.length % _kTabGroupColors.length];
+    final group = _TabGroup(id: 'grp_${DateTime.now().millisecondsSinceEpoch}', name: name.trim(), color: color);
+    setState(() {
+      _tabGroups.add(group);
+      _tabs[index].groupId = group.id;
+    });
+  }
+
+  void _toggleGroupExpanded(_TabGroup group) {
+    setState(() => group.isExpanded = !group.isExpanded);
+  }
+
+  /// Bulk-close every tab in [group] (PRD "Close all tabs in group").
+  void _closeGroupTabs(_TabGroup group) {
+    final indices = <int>[
+      for (var i = 0; i < _tabs.length; i++)
+        if (_tabs[i].groupId == group.id) i,
+    ];
+    // Close from the highest index down so earlier indices stay valid.
+    for (final i in indices.reversed) {
+      _closeTab(i);
+    }
+  }
+
+  void _ungroupAll(_TabGroup group) {
+    setState(() {
+      for (final t in _tabs) {
+        if (t.groupId == group.id) t.groupId = null;
+      }
+      _tabGroups.removeWhere((g) => g.id == group.id);
+    });
+  }
+
+  /// The "Tab groups" overview — rename, recolor, collapse/expand, bulk
+  /// close, or ungroup, without needing to right-click each tab.
+  void _showTabGroupsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF2D2D30),
+          title: const Text('Tab groups', style: TextStyle(fontSize: 15)),
+          content: SizedBox(
+            width: 360,
+            height: 320,
+            child: _tabGroups.isEmpty
+                ? Center(
+                    child: Text(
+                      'No groups yet. Right-click a tab to create one.',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _tabGroups.length,
+                    itemBuilder: (context, i) {
+                      final g = _tabGroups[i];
+                      final memberCount = _tabs.where((t) => t.groupId == g.id).length;
+                      return ListTile(
+                        dense: true,
+                        leading: Container(width: 10, height: 10, decoration: BoxDecoration(color: g.color, shape: BoxShape.circle)),
+                        title: Text(g.name, style: const TextStyle(fontSize: 13)),
+                        subtitle: Text('$memberCount tab${memberCount == 1 ? '' : 's'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: Icon(g.isExpanded ? Icons.unfold_less : Icons.unfold_more, size: 16),
+                              tooltip: g.isExpanded ? 'Collapse' : 'Expand',
+                              onPressed: () {
+                                _toggleGroupExpanded(g);
+                                setDialogState(() {});
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 16),
+                              tooltip: 'Rename',
+                              onPressed: () async {
+                                await _renameGroup(g);
+                                setDialogState(() {});
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 16),
+                              tooltip: 'Close all tabs in group',
+                              onPressed: () {
+                                _closeGroupTabs(g);
+                                setDialogState(() {});
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _renameGroup(_TabGroup group) async {
+    final nameController = TextEditingController(text: group.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D30),
+        title: const Text('Rename group', style: TextStyle(fontSize: 15)),
+        content: TextField(controller: nameController, autofocus: true, onSubmitted: (v) => Navigator.pop(ctx, v)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, nameController.text), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    setState(() => group.name = name.trim());
+  }
+
+  // ---------------------------------------------------------------------
+  // Split View (PRD 2.2.4)
+  // ---------------------------------------------------------------------
+
+  void _toggleSplitView() {
+    setState(() {
+      _splitViewEnabled = !_splitViewEnabled;
+      if (_splitViewEnabled) {
+        final left = _activeIndex;
+        // Pick a sensible second tab: the next one over, or open a fresh
+        // blank tab if this is the only one open.
+        int right;
+        if (_tabs.length > 1) {
+          right = (left + 1) % _tabs.length;
+        } else {
+          _tabs.add(_BrowserTab(id: _newId()));
+          right = _tabs.length - 1;
+        }
+        _splitPaneTabIndex = [left, right];
+        _splitController.areas = [Area(data: 0), Area(data: 1)];
+      }
+    });
+  }
+
+  void _openTabInSplit(int tabIndex) {
+    setState(() {
+      _splitViewEnabled = true;
+      final other = tabIndex == 0 && _tabs.length > 1 ? 1 : 0;
+      _splitPaneTabIndex = [other == tabIndex ? tabIndex : other, tabIndex];
+      _splitController.areas = [Area(data: 0), Area(data: 1)];
+    });
+  }
+
+  void _setSplitPane(int pane, int tabIndex) {
+    setState(() => _splitPaneTabIndex[pane] = tabIndex);
+  }
+
+  void _toggleSplitAxis() {
+    setState(() => _splitAxis = _splitAxis == Axis.horizontal ? Axis.vertical : Axis.horizontal);
+  }
+
+  /// Closes one pane of the split view -- the remaining pane's tab becomes
+  /// the single active tab again, exactly like Chrome's "close the other
+  /// half" behavior when you drop a split.
+  void _closeSplitPane(int pane) {
+    final remainingPane = pane == 0 ? 1 : 0;
+    final remainingTab = _splitPaneTabIndex[remainingPane].clamp(0, _tabs.length - 1);
+    setState(() {
+      _splitViewEnabled = false;
+      _activeIndex = remainingTab;
+      _addressController.text = _tabs[_activeIndex].url;
     });
   }
 
@@ -225,6 +772,32 @@ class _BrowserViewState extends State<BrowserView> {
       url = url.replaceFirst('http://', 'https://');
     }
 
+    // PRD 3.2.5 Safe Browsing -- block known-bad destinations outright
+    // instead of loading them, with a clear reason instead of a silent
+    // failure.
+    final host = Uri.tryParse(url)?.host ?? '';
+    if (_kSafeBrowsingBlocklist.any((bad) => host == bad || host.endsWith('.$bad'))) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF2D2D30),
+          title: const Row(
+            children: [
+              Icon(Icons.gpp_bad, color: Colors.redAccent, size: 20),
+              SizedBox(width: 8),
+              Text('Dangerous site blocked', style: TextStyle(fontSize: 15)),
+            ],
+          ),
+          content: Text(
+            'TradePilot Safe Browsing blocked "$host" because it matches a known phishing/malware pattern.',
+            style: const TextStyle(fontSize: 13),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+        ),
+      );
+      return;
+    }
+
     setState(() {
       tab.started = true;
       tab.url = url;
@@ -245,6 +818,26 @@ class _BrowserViewState extends State<BrowserView> {
   }
 
   void _goHome(_BrowserTab tab) => _navigate(tab, kBrowserHomeUrl);
+
+  /// PRD 2.2.16 "Screenshot" -- captures the visible page and saves it via
+  /// [saveScreenshot] (desktop/mobile: Downloads folder; web: browser
+  /// download prompt).
+  Future<void> _captureScreenshot(_BrowserTab tab) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final Uint8List? bytes = await tab.controller?.takeScreenshot();
+      if (bytes == null) {
+        messenger.showSnackBar(const SnackBar(content: Text('Could not capture this page.')));
+        return;
+      }
+      final safeName = tab.title.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_').toLowerCase();
+      final filename = 'tradepilot_${safeName.isEmpty ? 'screenshot' : safeName}_${DateTime.now().millisecondsSinceEpoch}.png';
+      final savedPath = await saveScreenshot(bytes, filename);
+      messenger.showSnackBar(SnackBar(content: Text('Screenshot saved: $savedPath')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Screenshot failed: $e')));
+    }
+  }
 
   void _reload(_BrowserTab tab) {
     if (tab.isLoading) {
@@ -448,6 +1041,12 @@ class _BrowserViewState extends State<BrowserView> {
               Expanded(
                 child: Stack(
                   children: [
+                    // PRD 2.2.4 Split View: swap the single-pane IndexedStack
+                    // for a resizable multi-pane layout. Flutter reparents
+                    // each tab's GlobalKey-ed InAppWebView in place rather
+                    // than disposing it, so the underlying page/session
+                    // survives the switch either way.
+                    if (_splitViewEnabled) _buildSplitView() else
                     IndexedStack(
                       index: _activeIndex,
                       children: [for (final t in _tabs) _buildTabBody(t)],
@@ -516,69 +1115,34 @@ class _BrowserViewState extends State<BrowserView> {
               : (availableForTabs / _tabs.length).clamp(minTabWidth, maxTabWidth);
           final tabsWidth = (perTabWidth * _tabs.length).clamp(0.0, availableForTabs);
 
+          // PRD 2.2.3 Tab Groups: collapsed groups collapse their member
+          // tabs down into a single small pill, in the position of the
+          // first member tab encountered.
+          final displayItems = <Widget>[];
+          final renderedCollapsedGroups = <String>{};
+          for (var index = 0; index < _tabs.length; index++) {
+            final t = _tabs[index];
+            final group = _groupFor(t.groupId);
+            if (group != null && !group.isExpanded) {
+              if (renderedCollapsedGroups.contains(group.id)) continue;
+              renderedCollapsedGroups.add(group.id);
+              displayItems.add(_buildGroupPill(group));
+              continue;
+            }
+            displayItems.add(_buildTabChip(index, perTabWidth, group));
+          }
+
           return Row(
             children: [
+              // PRD 2.2.5 Workspace switcher.
+              _buildWorkspaceSwitcher(),
               SizedBox(
                 width: tabsWidth,
-                child: ListView.builder(
+                child: ListView(
                   scrollDirection: Axis.horizontal,
-                  itemCount: _tabs.length,
-                  itemBuilder: (context, index) {
-                final t = _tabs[index];
-                final isActive = index == _activeIndex;
-                return GestureDetector(
-                  onTap: () => _activateTab(index),
-                  child: Container(
-                    width: perTabWidth,
-                    margin: const EdgeInsets.only(top: 6, right: 2),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: t.isIncognito
-                          ? (isActive ? const Color(0xFF2B2440) : const Color(0xFF211D30))
-                          : (isActive ? const Color(0xFF252526) : Colors.transparent),
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                      border: isActive
-                          ? Border.all(color: t.isIncognito ? Colors.deepPurple[300]! : Colors.grey[800]!, width: 0.5)
-                          : null,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          t.isIncognito
-                              ? Icons.visibility_off_outlined
-                              : (t.isLoading
-                                  ? Icons.autorenew
-                                  : (t.isSecure ? Icons.lock_outline : Icons.public)),
-                          size: 13,
-                          color: t.isIncognito
-                              ? Colors.deepPurple[200]
-                              : (isActive ? Colors.grey[300] : Colors.grey[600]),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            t.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isActive ? Colors.white : Colors.grey[500],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        InkWell(
-                          onTap: () => _closeTab(index),
-                          borderRadius: BorderRadius.circular(10),
-                          child: Icon(Icons.close, size: 13, color: Colors.grey[500]),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+                  children: displayItems,
+                ),
+              ),
           IconButton(
             icon: const Icon(Icons.add, size: 18),
             tooltip: 'New tab (Ctrl+T)',
@@ -586,9 +1150,21 @@ class _BrowserViewState extends State<BrowserView> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
-          // Empty draggable space between "+" and the window controls --
-          // without this, the minimize/maximize buttons sat right next to
-          // "+" instead of staying pinned to the far right edge.
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _tabGroups.isNotEmpty,
+              label: Text('${_tabGroups.length}', style: const TextStyle(fontSize: 9)),
+              child: const Icon(Icons.folder_outlined, size: 16),
+            ),
+            tooltip: 'Tab groups (PRD 2.2.3)',
+            onPressed: () => _showTabGroupsDialog(context),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 30, minHeight: 32),
+          ),
+          // Empty draggable space between the controls above and the
+          // window controls -- without this, the minimize/maximize buttons
+          // sat right next to them instead of staying pinned to the far
+          // right edge.
           const Expanded(child: SizedBox()),
           Consumer(
             builder: (context, ref, _) {
@@ -617,6 +1193,220 @@ class _BrowserViewState extends State<BrowserView> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// A single tab's rendered chip in the tab strip -- extracted out of
+  /// [_buildTabStrip] so grouped tabs can share the same look while also
+  /// getting a colored top indicator and a right-click/long-press menu for
+  /// group actions.
+  Widget _buildTabChip(int index, double width, _TabGroup? group) {
+    final t = _tabs[index];
+    final isActive = index == _activeIndex;
+    return GestureDetector(
+      onTap: () => _activateTab(index),
+      onSecondaryTapDown: (details) => _showTabContextMenu(details.globalPosition, index),
+      onLongPress: () => _showTabContextMenu(null, index),
+      child: Container(
+        width: width,
+        margin: const EdgeInsets.only(top: 6, right: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: t.isIncognito
+              ? (isActive ? const Color(0xFF2B2440) : const Color(0xFF211D30))
+              : (isActive ? const Color(0xFF252526) : Colors.transparent),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+          border: isActive
+              ? Border.all(color: t.isIncognito ? Colors.deepPurple[300]! : Colors.grey[800]!, width: 0.5)
+              : null,
+          // PRD 2.2.3 Tab Groups "color coding": a thin colored bar along
+          // the top edge marks which group this tab belongs to.
+          boxShadow: group != null
+              ? [BoxShadow(color: group.color, offset: const Offset(0, -2), blurRadius: 0, spreadRadius: -1)]
+              : null,
+        ),
+        child: Row(
+          children: [
+            if (group != null) ...[
+              Container(width: 6, height: 6, decoration: BoxDecoration(color: group.color, shape: BoxShape.circle)),
+              const SizedBox(width: 5),
+            ],
+            Icon(
+              t.isIncognito
+                  ? Icons.visibility_off_outlined
+                  : (t.isLoading
+                      ? Icons.autorenew
+                      : (t.isSecure ? Icons.lock_outline : Icons.public)),
+              size: 13,
+              color: t.isIncognito
+                  ? Colors.deepPurple[200]
+                  : (isActive ? Colors.grey[300] : Colors.grey[600]),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                t.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isActive ? Colors.white : Colors.grey[500],
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: () => _closeTab(index),
+              borderRadius: BorderRadius.circular(10),
+              child: Icon(Icons.close, size: 13, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A collapsed group's stand-in in the tab strip -- tap to expand,
+  /// right-click/long-press for rename / close-all / ungroup.
+  Widget _buildGroupPill(_TabGroup group) {
+    final memberCount = _tabs.where((t) => t.groupId == group.id).length;
+    return GestureDetector(
+      onTap: () => _toggleGroupExpanded(group),
+      onSecondaryTapDown: (details) => _showGroupContextMenu(details.globalPosition, group),
+      onLongPress: () => _showGroupContextMenu(null, group),
+      child: Container(
+        width: 52,
+        margin: const EdgeInsets.only(top: 6, right: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: group.color.withValues(alpha: 0.22),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+          border: Border.all(color: group.color, width: 1),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.folder, size: 12, color: group.color),
+            const SizedBox(width: 4),
+            Text('$memberCount', style: TextStyle(fontSize: 11.5, color: group.color, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showGroupContextMenu(Offset? globalPosition, _TabGroup group) async {
+    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final position = globalPosition ?? overlay.localToGlobal(Offset.zero);
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(position & const Size(1, 1), Offset.zero & overlay.size),
+      color: const Color(0xFF2D2D30),
+      items: [
+        PopupMenuItem(
+          value: 'toggle',
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(group.isExpanded ? 'Collapse group' : 'Expand group', style: const TextStyle(fontSize: 12.5)),
+        ),
+        const PopupMenuItem(value: 'rename', height: 32, padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Rename group', style: TextStyle(fontSize: 12.5))),
+        const PopupMenuItem(value: 'close_all', height: 32, padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Close tabs in group', style: TextStyle(fontSize: 12.5))),
+        const PopupMenuItem(value: 'ungroup', height: 32, padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Ungroup', style: TextStyle(fontSize: 12.5))),
+      ],
+    );
+    switch (selected) {
+      case 'toggle':
+        _toggleGroupExpanded(group);
+        break;
+      case 'rename':
+        await _renameGroup(group);
+        break;
+      case 'close_all':
+        _closeGroupTabs(group);
+        break;
+      case 'ungroup':
+        _ungroupAll(group);
+        break;
+    }
+  }
+
+  /// PRD 2.2.5 Workspace switcher -- sits at the start of the tab strip,
+  /// showing the active workspace's icon/name and letting the user switch,
+  /// rename, delete, or create workspaces without leaving the tab strip.
+  Widget _buildWorkspaceSwitcher() {
+    if (_workspaces.isEmpty) return const SizedBox(width: 4);
+    final active = _activeWorkspace;
+    return PopupMenuButton<String>(
+      tooltip: 'Workspaces (PRD 2.2.5)',
+      color: const Color(0xFF2D2D30),
+      constraints: const BoxConstraints(minWidth: 220, maxWidth: 260),
+      onSelected: (value) {
+        if (value == '__new__') {
+          _createWorkspace();
+        } else if (value.startsWith('rename_')) {
+          final id = value.substring('rename_'.length);
+          final w = _workspaces.firstWhere((w) => w.id == id, orElse: () => active);
+          _renameWorkspace(w);
+        } else if (value.startsWith('delete_')) {
+          final id = value.substring('delete_'.length);
+          final w = _workspaces.firstWhere((w) => w.id == id, orElse: () => active);
+          _deleteWorkspace(w);
+        } else {
+          _switchWorkspace(value);
+        }
+      },
+      itemBuilder: (context) => [
+        for (final w in _workspaces)
+          PopupMenuItem(
+            value: w.id,
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Text(w.icon, style: const TextStyle(fontSize: 13)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    w.name,
+                    style: TextStyle(fontSize: 12.5, fontWeight: w.id == _activeWorkspaceId ? FontWeight.bold : FontWeight.normal),
+                  ),
+                ),
+                if (w.id == _activeWorkspaceId) const Icon(Icons.check, size: 14, color: Colors.blueAccent),
+                InkWell(
+                  onTap: () => Navigator.pop(context, 'rename_${w.id}'),
+                  child: const Padding(padding: EdgeInsets.all(2), child: Icon(Icons.edit_outlined, size: 13, color: Colors.grey)),
+                ),
+                InkWell(
+                  onTap: () => Navigator.pop(context, 'delete_${w.id}'),
+                  child: const Padding(padding: EdgeInsets.all(2), child: Icon(Icons.delete_outline, size: 13, color: Colors.grey)),
+                ),
+              ],
+            ),
+          ),
+        const PopupMenuDivider(height: 8),
+        const PopupMenuItem(
+          value: '__new__',
+          height: 32,
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Row(children: [Icon(Icons.add, size: 14), SizedBox(width: 8), Text('New workspace', style: TextStyle(fontSize: 12.5))]),
+        ),
+      ],
+      child: Container(
+        height: 32,
+        constraints: const BoxConstraints(maxWidth: 130),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(active.icon, style: const TextStyle(fontSize: 13)),
+            const SizedBox(width: 5),
+            Flexible(child: Text(active.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white))),
+            const SizedBox(width: 2),
+            Icon(Icons.arrow_drop_down, size: 16, color: Colors.grey[500]),
+          ],
+        ),
       ),
     );
   }
@@ -655,6 +1445,32 @@ class _BrowserViewState extends State<BrowserView> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
           ),
+          IconButton(
+            icon: const Icon(Icons.photo_camera_outlined, size: 17),
+            tooltip: 'Screenshot page (PRD 2.2.16)',
+            onPressed: tab.started ? () => _captureScreenshot(tab) : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+          ),
+          IconButton(
+            icon: Icon(
+              _splitAxis == Axis.horizontal ? Icons.vertical_split : Icons.horizontal_split,
+              size: 17,
+              color: _splitViewEnabled ? Colors.blueAccent : null,
+            ),
+            tooltip: _splitViewEnabled ? 'Exit split view' : 'Split view (PRD 2.2.4)',
+            onPressed: _toggleSplitView,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+          ),
+          if (_splitViewEnabled)
+            IconButton(
+              icon: const Icon(Icons.swap_horiz, size: 17),
+              tooltip: 'Toggle split direction',
+              onPressed: _toggleSplitAxis,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+            ),
           Expanded(
             child: Container(
               height: 28,
@@ -744,6 +1560,9 @@ class _BrowserViewState extends State<BrowserView> {
                 case 'more_tools':
                   _showStubDialog(context, 'More tools', 'Extensions and developer tools aren\'t available here yet.', Icons.build_outlined);
                   break;
+                case 'passwords':
+                  _showPasswordVaultDialog(context);
+                  break;
                 case 'settings':
                   showDialog(context: context, builder: (_) => const _BrowserSettingsDialog());
                   break;
@@ -782,6 +1601,7 @@ class _BrowserViewState extends State<BrowserView> {
               const PopupMenuItem(height: 30, padding: EdgeInsets.symmetric(horizontal: 12), value: 'find', child: _MenuRow(label: 'Find in page', shortcut: 'Ctrl+F')),
               const PopupMenuItem(height: 30, padding: EdgeInsets.symmetric(horizontal: 12), value: 'translate', child: _MenuRow(label: 'Translate this page')),
               const PopupMenuItem(height: 30, padding: EdgeInsets.symmetric(horizontal: 12), value: 'more_tools', child: _MenuRow(label: 'More tools', trailingArrow: true)),
+              const PopupMenuItem(height: 30, padding: EdgeInsets.symmetric(horizontal: 12), value: 'passwords', child: _MenuRow(label: 'Passwords and autofill')),
               const PopupMenuDivider(height: 8),
               PopupMenuItem(
                 enabled: false,
@@ -998,6 +1818,155 @@ class _BrowserViewState extends State<BrowserView> {
     );
   }
 
+  /// PRD 2.2.12 "Password Manager" -- view, add, reveal, and delete saved
+  /// logins from [PasswordVault]. Manual (no auto-detect on form submit
+  /// yet -- see the note on [PasswordVault] itself), but a real, working,
+  /// encrypted-at-rest vault rather than a placeholder screen.
+  void _showPasswordVaultDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return FutureBuilder<List<SavedCredential>>(
+            future: PasswordVault.loadAll(),
+            builder: (context, snapshot) {
+              final items = snapshot.data ?? const <SavedCredential>[];
+              final revealed = <String>{};
+              return StatefulBuilder(
+                builder: (context, setInnerState) => AlertDialog(
+                  backgroundColor: const Color(0xFF2D2D30),
+                  title: Row(
+                    children: [
+                      const Expanded(child: Text('Passwords and autofill', style: TextStyle(fontSize: 15))),
+                      IconButton(
+                        icon: const Icon(Icons.add, size: 18),
+                        tooltip: 'Add saved login',
+                        onPressed: () async {
+                          final added = await _showAddCredentialDialog(context);
+                          if (added) setDialogState(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                  content: SizedBox(
+                    width: 380,
+                    height: 340,
+                    child: !snapshot.hasData
+                        ? const Center(child: CircularProgressIndicator())
+                        : items.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No saved logins yet. Tap "+" to add one.',
+                                  style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: items.length,
+                                itemBuilder: (context, index) {
+                                  final c = items[index];
+                                  final isRevealed = revealed.contains(c.id);
+                                  return ListTile(
+                                    dense: true,
+                                    leading: const Icon(Icons.lock_outline, size: 18, color: Colors.grey),
+                                    title: Text(c.site, style: const TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    subtitle: Text(
+                                      '${c.username} · ${isRevealed ? c.password : '•' * c.password.length.clamp(6, 12)}',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: Icon(isRevealed ? Icons.visibility_off : Icons.visibility, size: 16),
+                                          tooltip: isRevealed ? 'Hide password' : 'Reveal password',
+                                          onPressed: () => setInnerState(() {
+                                            if (isRevealed) {
+                                              revealed.remove(c.id);
+                                            } else {
+                                              revealed.add(c.id);
+                                            }
+                                          }),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.copy, size: 16),
+                                          tooltip: 'Copy password',
+                                          onPressed: () async {
+                                            await Clipboard.setData(ClipboardData(text: c.password));
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Password copied.'), duration: Duration(seconds: 2)),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, size: 16),
+                                          tooltip: 'Delete',
+                                          onPressed: () async {
+                                            await PasswordVault.remove(c.id);
+                                            setDialogState(() {});
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<bool> _showAddCredentialDialog(BuildContext context) async {
+    final siteController = TextEditingController(text: _activeTab.started ? (Uri.tryParse(_activeTab.url)?.host ?? '') : '');
+    final userController = TextEditingController();
+    final passController = TextEditingController();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D30),
+        title: const Text('Add saved login', style: TextStyle(fontSize: 15)),
+        content: SizedBox(
+          width: 320,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: siteController, decoration: const InputDecoration(labelText: 'Site')),
+              TextField(controller: userController, decoration: const InputDecoration(labelText: 'Username / email')),
+              TextField(controller: passController, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              if (siteController.text.trim().isEmpty || passController.text.isEmpty) return;
+              await PasswordVault.add(SavedCredential(
+                id: 'cred_${DateTime.now().millisecondsSinceEpoch}',
+                site: siteController.text.trim(),
+                username: userController.text.trim(),
+                password: passController.text,
+                savedAt: DateTime.now(),
+              ));
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    return saved ?? false;
+  }
+
   Widget _buildBookmarksBar(_BrowserTab tab) {
     return Container(
       height: 26,
@@ -1093,6 +2062,12 @@ class _BrowserViewState extends State<BrowserView> {
         cacheEnabled: !tab.isIncognito,
         contentBlockers: _kTrackerBlockList,
       ),
+      initialUserScripts: UnmodifiableListView([
+        UserScript(
+          source: _kFingerprintProtectionScript,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        ),
+      ]),
       onWebViewCreated: (controller) {
         tab.controller = controller;
       },
@@ -1165,6 +2140,7 @@ class _BrowserViewState extends State<BrowserView> {
             _history.insert(0, _HistoryEntry(url: tab.url, title: tab.title, visitedAt: DateTime.now()));
           }
         });
+        _persistSession();
       },
       onProgressChanged: (controller, p) {
         setState(() {
@@ -1178,6 +2154,79 @@ class _BrowserViewState extends State<BrowserView> {
           tab.title = 'Unable to load page';
         });
       },
+    );
+  }
+
+  /// PRD 2.2.4 "Split View" -- two resizable panes, each independently
+  /// showing one of the currently open tabs, so a chart and a news feed
+  /// (for example) can be watched side-by-side.
+  Widget _buildSplitView() {
+    // multi_split_view 3.x drives its layout from a controller + a
+    // per-area builder rather than a fixed `children` list -- `area.data`
+    // carries which pane slot (0 or 1) this area represents.
+    return MultiSplitView(
+      axis: _splitAxis,
+      resizable: true,
+      controller: _splitController,
+      dividerBuilder: (axis, index, resizable, dragging, highlighted, themeData) {
+        return Container(
+          color: dragging || highlighted ? Colors.blueAccent.withValues(alpha: 0.6) : const Color(0xFF1E1E1E),
+          child: Center(
+            child: Icon(
+              axis == Axis.horizontal ? Icons.drag_indicator : Icons.drag_handle,
+              size: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+        );
+      },
+      builder: (context, area) => _buildSplitPane(area.data as int),
+    );
+  }
+
+  Widget _buildSplitPane(int pane) {
+    final tabIndex = _splitPaneTabIndex[pane].clamp(0, _tabs.length - 1);
+    final tab = _tabs[tabIndex];
+    return Column(
+      children: [
+        Container(
+          height: 30,
+          color: const Color(0xFF232324),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(
+            children: [
+              Icon(tab.isSecure ? Icons.lock_outline : Icons.public, size: 12, color: Colors.grey[500]),
+              const SizedBox(width: 6),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: tabIndex,
+                    isDense: true,
+                    isExpanded: true,
+                    dropdownColor: const Color(0xFF2D2D30),
+                    style: const TextStyle(fontSize: 12, color: Colors.white),
+                    items: [
+                      for (var i = 0; i < _tabs.length; i++)
+                        DropdownMenuItem(value: i, child: Text(_tabs[i].title, overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (i) {
+                      if (i != null) _setSplitPane(pane, i);
+                    },
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 14),
+                tooltip: 'Close this pane',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                onPressed: () => _closeSplitPane(pane),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: _buildTabBody(tab)),
+      ],
     );
   }
 }
