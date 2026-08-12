@@ -19,7 +19,13 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    // Pinned below AGP 9.0: AGP 9.0+ hard-removed getDefaultProguardFile(
+    // Pinned below AGP 9.0 (see reasoning below), and at/above 8.11.1
+    // specifically because Flutter's own tooling now refuses to build
+    // against anything older than that -- 8.11.0 (this pin's first attempt)
+    // fell just short and failed with "Your project's Android Gradle Plugin
+    // version is lower than Flutter's minimum supported version".
+    //
+    // AGP 9.0+ hard-removed getDefaultProguardFile(
     // 'proguard-android.txt'), which flutter_inappwebview_android (and
     // several other Flutter plugins) still reference in their own
     // vendored build.gradle -- see
@@ -29,7 +35,7 @@ plugins {
     // Capacitor ecosystem until upstream plugins update. Gradle happily
     // runs an older AGP under a newer Gradle wrapper (the reverse isn't
     // true), so this stays compatible with the bundled Gradle 9.1 wrapper.
-    id("com.android.application") version "8.11.0" apply false
+    id("com.android.application") version "8.13.2" apply false
     id("org.jetbrains.kotlin.android") version "2.3.20" apply false
 }
 
