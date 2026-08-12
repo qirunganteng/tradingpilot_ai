@@ -4,43 +4,23 @@ import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:multi_split_view/multi_split_view.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/navigation/activity_bar.dart';
 import '../services/password_vault.dart';
 import '../services/session_manager.dart';
 import '../services/screenshot_service.dart';
 import '../services/workspace_manager.dart' as ws;
-
-/// PRD 3.3.3 "Fingerprint Protection" -- a lightweight, always-on script
-/// injected before every page's own scripts run. Real anti-fingerprinting
-/// is a deep rabbit hole (canvas/audio/WebGL noise, timing attacks, etc.);
-/// this covers the handful of cheap, high-signal checks sites commonly use
-/// first (navigator.webdriver, a suspiciously-empty plugins list) without
-/// touching canvas/WebGL output, which risks visibly breaking charting
-/// libraries like TradingView that this app depends on rendering
-/// correctly.
-const String _kFingerprintProtectionScript = '''
-(function() {
-  try {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    if (navigator.plugins && navigator.plugins.length === 0) {
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-    }
-  } catch (e) {}
-})();
-''';
-
-/// PRD 3.2.5 "Safe Browsing" -- a small, illustrative blocklist of known
-/// phishing/malware domain *patterns*. A production deployment should
-/// replace this with a real threat-intel source (e.g. Google Safe
-/// Browsing's Lookup API) -- this hook exists and works end-to-end, it
-/// just isn't backed by a live, constantly-updated feed yet.
-const List<String> _kSafeBrowsingBlocklist = [
-  'phishing-example.com',
-  'malware-test.com',
-];
+import '../services/history_manager.dart';
+import '../services/download_manager.dart';
+import '../services/permission_manager.dart';
+import '../../../core/security/https_enforcer.dart';
+import '../../../core/security/safe_browsing_service.dart';
+import '../../../core/security/tracking_protection_lists.dart';
+import '../../../core/security/fingerprint_protection_script.dart';
 
 /// Default homepage used by the Home button and the very first tab.
 const String kBrowserHomeUrl = 'https://www.tradingview.com/chart/';
+const String _kVerticalTabsPrefKey = 'tradepilot_browser_vertical_tabs';
 
 class _QuickLink {
   final String label;
@@ -49,32 +29,12 @@ class _QuickLink {
   const _QuickLink(this.label, this.url, this.icon);
 }
 
-/// PRD 3.3.2 "Tracking Protection" -- blocks network requests for a short
-/// list of the most common ad/tracker domains via flutter_inappwebview's
-/// native ContentBlocker (same mechanism on every platform that supports
-/// it, no separate native code needed). Applied to every tab, always on --
-/// not a full adblock-grade list, but a real, functioning baseline rather
-/// than a decorative toggle.
-final List<ContentBlocker> _kTrackerBlockList = [
-  'doubleclick.net',
-  'googlesyndication.com',
-  'google-analytics.com',
-  'googletagmanager.com',
-  'facebook.com/tr',
-  'connect.facebook.net',
-  'adservice.google.com',
-  'amazon-adsystem.com',
-  'scorecardresearch.com',
-  'hotjar.com',
-  'criteo.com',
-  'taboola.com',
-  'outbrain.com',
-].map((domain) {
-  return ContentBlocker(
-    trigger: ContentBlockerTrigger(urlFilter: '.*$domain.*'),
-    action: ContentBlockerAction(type: ContentBlockerActionType.BLOCK),
-  );
-}).toList();
+// PRD 3.3.2 Tracking Protection content blockers now live in
+// core/security/tracking_protection_lists.dart (buildTrackerContentBlockers()),
+// and PRD 3.3.3's injected script in core/security/fingerprint_protection_script.dart
+// (kFingerprintProtectionScript) -- both shared with anything else that
+// embeds a WebView, not duplicated per call site.
+final List<ContentBlocker> _kTrackerBlockList = buildTrackerContentBlockers();
 
 const List<_QuickLink> _kQuickLinks = [
   _QuickLink('TradingView', 'https://www.tradingview.com/chart/', Icons.show_chart),
@@ -149,20 +109,6 @@ const List<Color> _kTabGroupColors = [
   Colors.greenAccent,
 ];
 
-class _HistoryEntry {
-  final String url;
-  final String title;
-  final DateTime visitedAt;
-  const _HistoryEntry({required this.url, required this.title, required this.visitedAt});
-}
-
-class _DownloadEntry {
-  final String url;
-  final String filename;
-  final DateTime startedAt;
-  const _DownloadEntry({required this.url, required this.filename, required this.startedAt});
-}
-
 class BrowserView extends StatefulWidget {
   const BrowserView({super.key});
 
@@ -176,8 +122,16 @@ class _BrowserViewState extends State<BrowserView> {
   int _tabCounter = 0;
   bool _showBookmarksBar = true;
   late List<_QuickLink> _bookmarks = List.of(_kQuickLinks);
-  final List<_HistoryEntry> _history = [];
-  final List<_DownloadEntry> _downloads = [];
+  // PRD 2.2.8 History -- persisted via HistoryManager (see initState);
+  // this in-memory list is just the current session's working copy that
+  // the UI renders from.
+  List<HistoryEntry> _history = [];
+  // PRD 2.2.9 Downloads -- real transfers with live progress, tracked and
+  // persisted by DownloadManager rather than an in-memory placeholder.
+  final DownloadManager _downloadManager = DownloadManager();
+  // PRD 2.2.2 Vertical Tabs -- persisted layout preference (left sidebar
+  // vs the classic Chrome-style top strip).
+  bool _verticalTabs = false;
   // Fase PRD Keyboard Shortcuts: Ctrl+Shift+T reopens the last closed tab --
   // small LIFO stack of what a closed tab's url/title/incognito state was.
   final List<({String url, String title, bool isIncognito})> _recentlyClosed = [];
@@ -225,6 +179,27 @@ class _BrowserViewState extends State<BrowserView> {
     // falls back to one blank "New Tab" in a fresh "Default" workspace on
     // first run.
     _initWorkspacesAndRestore();
+    _loadPersistedHistory();
+    _downloadManager.loadPersisted();
+    _loadVerticalTabsPref();
+  }
+
+  Future<void> _loadPersistedHistory() async {
+    final loaded = await HistoryManager.loadAll();
+    if (!mounted) return;
+    setState(() => _history = loaded);
+  }
+
+  Future<void> _loadVerticalTabsPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getBool(_kVerticalTabsPrefKey);
+    if (saved != null && mounted) setState(() => _verticalTabs = saved);
+  }
+
+  Future<void> _toggleVerticalTabs() async {
+    setState(() => _verticalTabs = !_verticalTabs);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kVerticalTabsPrefKey, _verticalTabs);
   }
 
   Future<void> _initWorkspacesAndRestore() async {
@@ -395,6 +370,7 @@ class _BrowserViewState extends State<BrowserView> {
     _addressFocusNode.dispose();
     _shortcutsFocusNode.dispose();
     _splitController.dispose();
+    _downloadManager.dispose();
     super.dispose();
   }
 
@@ -764,19 +740,20 @@ class _BrowserViewState extends State<BrowserView> {
       url = 'https://www.google.com/search?q=${Uri.encodeComponent(url)}';
     } else if (!RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(url)) {
       url = 'https://$url';
-    } else if (url.startsWith('http://')) {
+    } else {
       // PRD 3.2.1 "HTTPS Only": auto-upgrade any explicit http:// entry to
       // https:// before it ever reaches the WebView. If the site genuinely
       // has no HTTPS, the load will fail visibly rather than silently
       // downgrading security.
-      url = url.replaceFirst('http://', 'https://');
+      url = HttpsEnforcer.enforceHttps(url);
     }
 
     // PRD 3.2.5 Safe Browsing -- block known-bad destinations outright
     // instead of loading them, with a clear reason instead of a silent
     // failure.
     final host = Uri.tryParse(url)?.host ?? '';
-    if (_kSafeBrowsingBlocklist.any((bad) => host == bad || host.endsWith('.$bad'))) {
+    final safeBrowsingVerdict = SafeBrowsingService.check(host);
+    if (safeBrowsingVerdict.isBlocked) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -956,10 +933,9 @@ class _BrowserViewState extends State<BrowserView> {
           return KeyEventResult.handled;
         }
         if (shift && key == LogicalKeyboardKey.delete) {
-          setState(() {
-            _history.clear();
-            _downloads.clear();
-          });
+          setState(() => _history.clear());
+          HistoryManager.clear();
+          _downloadManager.clearAll();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Browsing history and downloads cleared.'), duration: Duration(seconds: 2)),
           );
@@ -1024,9 +1000,9 @@ class _BrowserViewState extends State<BrowserView> {
       child: Consumer(
         builder: (context, ref, _) {
           final isFullscreen = ref.watch(browserMaximizedProvider);
-          return Column(
+          final content = Column(
             children: [
-              if (!isFullscreen) _buildTabStrip(),
+              if (!isFullscreen && !_verticalTabs) _buildTabStrip(),
               if (!isFullscreen) _buildToolbar(tab),
               if (!isFullscreen && _showBookmarksBar) _buildBookmarksBar(tab),
               if (tab.isLoading)
@@ -1084,6 +1060,19 @@ class _BrowserViewState extends State<BrowserView> {
               ),
             ],
           );
+
+          // PRD 2.2.2 Vertical Tabs -- a left sidebar showing every tab
+          // stacked vertically instead of the classic top strip, toggled
+          // from the toolbar and persisted across restarts.
+          if (!isFullscreen && _verticalTabs) {
+            return Row(
+              children: [
+                _buildVerticalTabBar(),
+                Expanded(child: content),
+              ],
+            );
+          }
+          return content;
         },
       ),
     );
@@ -1193,6 +1182,107 @@ class _BrowserViewState extends State<BrowserView> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// PRD 2.2.2 "Vertical Tabs" -- left sidebar rendering of every open
+  /// tab (plus the workspace switcher, new-tab, and tab-groups controls
+  /// that normally live in the horizontal strip), for traders who prefer
+  /// seeing more tab titles at once over the classic Chrome-style top
+  /// strip. Collapsible via the toolbar toggle; the choice is persisted
+  /// (see [_toggleVerticalTabs]).
+  Widget _buildVerticalTabBar() {
+    return Container(
+      width: 240,
+      color: const Color(0xFF1E1E1E),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              children: [
+                Expanded(child: _buildWorkspaceSwitcher()),
+                IconButton(
+                  icon: const Icon(Icons.add, size: 16),
+                  tooltip: 'New tab (Ctrl+T)',
+                  onPressed: () => _openNewTab(),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                ),
+                IconButton(
+                  icon: Badge(
+                    isLabelVisible: _tabGroups.isNotEmpty,
+                    label: Text('${_tabGroups.length}', style: const TextStyle(fontSize: 9)),
+                    child: const Icon(Icons.folder_outlined, size: 14),
+                  ),
+                  tooltip: 'Tab groups (PRD 2.2.3)',
+                  onPressed: () => _showTabGroupsDialog(context),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFF2D2D30)),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              itemCount: _tabs.length,
+              itemBuilder: (context, index) => _buildVerticalTabRow(index),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVerticalTabRow(int index) {
+    final t = _tabs[index];
+    final isActive = index == _activeIndex;
+    final group = _groupFor(t.groupId);
+    return GestureDetector(
+      onTap: () => _activateTab(index),
+      onSecondaryTapDown: (details) => _showTabContextMenu(details.globalPosition, index),
+      onLongPress: () => _showTabContextMenu(null, index),
+      child: Container(
+        height: 32,
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: t.isIncognito
+              ? (isActive ? const Color(0xFF2B2440) : Colors.transparent)
+              : (isActive ? const Color(0xFF37373D) : Colors.transparent),
+          borderRadius: BorderRadius.circular(6),
+          border: group != null ? Border(left: BorderSide(color: group.color, width: 3)) : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              t.isIncognito
+                  ? Icons.visibility_off_outlined
+                  : (t.isLoading ? Icons.autorenew : (t.isSecure ? Icons.lock_outline : Icons.public)),
+              size: 13,
+              color: t.isIncognito ? Colors.deepPurple[200] : (isActive ? Colors.grey[300] : Colors.grey[600]),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                t.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: isActive ? Colors.white : Colors.grey[400]),
+              ),
+            ),
+            InkWell(
+              onTap: () => _closeTab(index),
+              borderRadius: BorderRadius.circular(10),
+              child: Icon(Icons.close, size: 13, color: Colors.grey[500]),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1454,6 +1544,17 @@ class _BrowserViewState extends State<BrowserView> {
           ),
           IconButton(
             icon: Icon(
+              Icons.view_sidebar_outlined,
+              size: 17,
+              color: _verticalTabs ? Colors.blueAccent : null,
+            ),
+            tooltip: _verticalTabs ? 'Switch to top tab strip' : 'Vertical tabs (PRD 2.2.2)',
+            onPressed: _toggleVerticalTabs,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+          ),
+          IconButton(
+            icon: Icon(
               _splitAxis == Axis.horizontal ? Icons.vertical_split : Icons.horizontal_split,
               size: 17,
               color: _splitViewEnabled ? Colors.blueAccent : null,
@@ -1696,6 +1797,7 @@ class _BrowserViewState extends State<BrowserView> {
                 TextButton(
                   onPressed: () {
                     setState(() => _history.clear());
+                    HistoryManager.clear();
                     setDialogState(() {});
                   },
                   child: const Text('Clear all', style: TextStyle(fontSize: 12)),
@@ -1724,6 +1826,7 @@ class _BrowserViewState extends State<BrowserView> {
                           icon: const Icon(Icons.close, size: 15),
                           onPressed: () {
                             setState(() => _history.removeAt(index));
+                            HistoryManager.saveAll(_history);
                             setDialogState(() {});
                           },
                         ),
@@ -1746,45 +1849,60 @@ class _BrowserViewState extends State<BrowserView> {
   void _showDownloadsDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
+      builder: (ctx) => ValueListenableBuilder<List<DownloadRecord>>(
+        valueListenable: _downloadManager.records,
+        builder: (context, downloads, _) => AlertDialog(
           backgroundColor: const Color(0xFF2D2D30),
           title: const Text('Downloads', style: TextStyle(fontSize: 15)),
           content: SizedBox(
-            width: 360,
-            height: 320,
-            child: _downloads.isEmpty
+            width: 380,
+            height: 340,
+            child: downloads.isEmpty
                 ? Center(
                     child: Text('No downloads yet.', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
                   )
                 : ListView.builder(
-                    itemCount: _downloads.length,
+                    itemCount: downloads.length,
                     itemBuilder: (context, index) {
-                      final d = _downloads[index];
+                      final d = downloads[index];
+                      final progress = d.totalBytes > 0 ? d.downloadedBytes / d.totalBytes : null;
                       return ListTile(
                         dense: true,
-                        leading: Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey[400]),
+                        leading: Icon(
+                          d.status == DownloadStatus.completed
+                              ? Icons.check_circle_outline
+                              : d.status == DownloadStatus.failed
+                                  ? Icons.error_outline
+                                  : Icons.downloading_outlined,
+                          size: 18,
+                          color: d.status == DownloadStatus.completed
+                              ? Colors.greenAccent
+                              : d.status == DownloadStatus.failed
+                                  ? Colors.redAccent
+                                  : Colors.grey[400],
+                        ),
                         title: Text(d.filename, style: const TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: Text(d.url, style: TextStyle(fontSize: 10.5, color: Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: d.status == DownloadStatus.inProgress
+                            ? LinearProgressIndicator(value: progress, minHeight: 3)
+                            : Text(
+                                d.status == DownloadStatus.completed ? (d.path ?? 'Saved') : 'Failed',
+                                style: TextStyle(fontSize: 10.5, color: Colors.grey[600]),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                         trailing: IconButton(
-                          icon: const Icon(Icons.open_in_new, size: 15),
-                          tooltip: 'Open again',
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _openNewTab(url: d.url, started: true, title: d.filename);
-                          },
+                          icon: const Icon(Icons.refresh, size: 15),
+                          tooltip: 'Download again',
+                          onPressed: () => _downloadManager.start(d.url, suggestedFilename: d.filename),
                         ),
                       );
                     },
                   ),
           ),
           actions: [
-            if (_downloads.isNotEmpty)
+            if (downloads.isNotEmpty)
               TextButton(
-                onPressed: () {
-                  setState(() => _downloads.clear());
-                  setDialogState(() {});
-                },
+                onPressed: () => _downloadManager.clearAll(),
                 child: const Text('Clear all'),
               ),
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
@@ -2064,7 +2182,7 @@ class _BrowserViewState extends State<BrowserView> {
       ),
       initialUserScripts: UnmodifiableListView([
         UserScript(
-          source: _kFingerprintProtectionScript,
+          source: kFingerprintProtectionScript,
           injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
         ),
       ]),
@@ -2084,26 +2202,91 @@ class _BrowserViewState extends State<BrowserView> {
         );
         return true;
       },
-      // Real download capture: the webview can't write arbitrary files to
-      // disk across every platform without extra native plugins, but we
-      // *can* reliably intercept the request, record it, and hand the URL
-      // back to the OS/browser download pipeline via an external tab --
-      // which is what actually completes the download.
+      // Real download capture -- routed through DownloadManager so bytes
+      // actually land on disk (desktop/mobile) or the browser's own
+      // download pipeline (web), with live progress in the Downloads
+      // dialog, instead of the old placeholder that just reopened the URL
+      // in a new tab and called that a "download".
       onDownloadStartRequest: (controller, request) async {
         final filename = request.suggestedFilename ??
             (request.url.pathSegments.isNotEmpty ? request.url.pathSegments.last : 'download');
-        setState(() {
-          _downloads.insert(
-            0,
-            _DownloadEntry(url: request.url.toString(), filename: filename, startedAt: DateTime.now()),
-          );
-        });
+        _downloadManager.start(request.url.toString(), suggestedFilename: filename);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Downloading $filename\u2026'), duration: const Duration(seconds: 2)),
           );
         }
-        _openNewTab(url: request.url.toString(), started: true, title: filename);
+      },
+      // PRD 3.2.6 / CONSTITUTION.md "Permission Manager" -- camera/mic/
+      // location access must be explicit per-site, never a blanket allow.
+      // Checks PermissionManager for a remembered decision first; only
+      // prompts when this exact (origin, resource) pair has never been
+      // decided, then remembers the answer either way.
+      onPermissionRequest: (controller, request) async {
+        final origin = request.origin.toString();
+        final resourceLabels = request.resources.map((r) => r.toString()).toList();
+        final resourceKey = resourceLabels.join(',');
+
+        final remembered = await PermissionManager.decisionFor(origin, resourceKey);
+        if (remembered == PermissionDecision.allow) {
+          return PermissionResponse(resources: request.resources, action: PermissionResponseAction.GRANT);
+        }
+        if (remembered == PermissionDecision.block) {
+          return PermissionResponse(resources: request.resources, action: PermissionResponseAction.DENY);
+        }
+
+        if (!mounted) {
+          return PermissionResponse(resources: request.resources, action: PermissionResponseAction.DENY);
+        }
+        var remember = true;
+        final allowed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => StatefulBuilder(
+            builder: (ctx, setDialogState) => AlertDialog(
+              backgroundColor: const Color(0xFF2D2D30),
+              title: const Row(
+                children: [
+                  Icon(Icons.privacy_tip_outlined, color: Colors.amberAccent, size: 20),
+                  SizedBox(width: 8),
+                  Text('Permission request', style: TextStyle(fontSize: 15)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('"$origin" wants to use:', style: const TextStyle(fontSize: 13)),
+                  const SizedBox(height: 6),
+                  Text('• $resourceKey', style: TextStyle(fontSize: 12.5, color: Colors.grey[300])),
+                  const SizedBox(height: 12),
+                  StatefulBuilder(
+                    builder: (ctx, setInner) => CheckboxListTile(
+                      value: remember,
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text('Remember for this site', style: TextStyle(fontSize: 12.5)),
+                      onChanged: (v) => setInner(() => remember = v ?? true),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Block')),
+                TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Allow')),
+              ],
+            ),
+          ),
+        );
+
+        final decision = allowed == true ? PermissionDecision.allow : PermissionDecision.block;
+        if (remember) {
+          await PermissionManager.remember(origin, resourceKey, decision);
+        }
+        return PermissionResponse(
+          resources: request.resources,
+          action: allowed == true ? PermissionResponseAction.GRANT : PermissionResponseAction.DENY,
+        );
       },
       onLoadStart: (controller, url) {
         setState(() {
@@ -2135,9 +2318,11 @@ class _BrowserViewState extends State<BrowserView> {
           if (identical(tab, _activeTab)) _addressController.text = tab.url;
           // Record real browsing history — skip entirely for incognito tabs
           // (PRD 3.3.1), and skip if this exact URL is still the most
-          // recent entry (e.g. a reload) to avoid spamming dupes.
+          // recent entry (e.g. a reload) to avoid spamming dupes. Persisted
+          // immediately via HistoryManager so it survives an app restart.
           if (!tab.isIncognito && tab.url.isNotEmpty && (_history.isEmpty || _history.first.url != tab.url)) {
-            _history.insert(0, _HistoryEntry(url: tab.url, title: tab.title, visitedAt: DateTime.now()));
+            _history.insert(0, HistoryEntry(url: tab.url, title: tab.title, visitedAt: DateTime.now()));
+            HistoryManager.saveAll(_history);
           }
         });
         _persistSession();

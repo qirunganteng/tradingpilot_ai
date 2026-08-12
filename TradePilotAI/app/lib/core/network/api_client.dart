@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'app_config.dart';
+import '../security/certificate_pinning_export.dart';
 
 /// Single, shared Dio instance for the whole app.
 final dioClientProvider = Provider<Dio>((ref) {
@@ -25,6 +26,10 @@ final dioClientProvider = Provider<Dio>((ref) {
       ),
     );
   }
+
+  // PRD 3.2.4 "Certificate Pinning" -- no-op until real pins are
+  // configured (see core/security/certificate_pinning.dart).
+  configureCertificatePinning(dio);
 
   return dio;
 });

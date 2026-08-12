@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:tradepilot/features/trading_workspace/presentation/browser_view.dart';
+import 'package:tradepilot/features/browser_core/presentation/browser_view.dart';
 import 'package:tradepilot/features/trading_workspace/presentation/trading_panel.dart';
 import 'package:tradepilot/features/ai_pilot/presentation/ai_panel.dart';
 import 'package:tradepilot/features/social_community/presentation/social_view.dart';
