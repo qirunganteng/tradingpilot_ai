@@ -174,6 +174,17 @@ class _BrowserViewState extends State<BrowserView> {
   @override
   void initState() {
     super.initState();
+    // A blank seed tab so `_tabs` is never empty on the very first build --
+    // _initWorkspacesAndRestore() below loads the real tabs from disk
+    // *asynchronously*, but Flutter calls build() synchronously right
+    // after initState(), before that finishes. Without this seed tab,
+    // `_activeTab`'s `_tabs[_activeIndex]` throws a RangeError on that
+    // first frame -- which in a release build renders as a blank gray box
+    // with no error text (Flutter's default release ErrorWidget), not the
+    // red debug error screen, so it's easy to miss outside a release build.
+    // _initWorkspacesAndRestore() replaces this seed tab moments later once
+    // the real, persisted tabs are loaded.
+    _tabs.add(_BrowserTab(id: _newId()));
     // PRD 2.2.6 Session Manager + PRD 2.2.5 Workspace: restore whichever
     // workspace was last active, with whatever tabs were open in it --
     // falls back to one blank "New Tab" in a fresh "Default" workspace on

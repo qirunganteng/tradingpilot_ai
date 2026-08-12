@@ -1,88 +1,77 @@
-# Known limitations
+# Batasan yang diketahui
 
-Per CONSTITUTION.md, a PRD item that isn't implemented must be recorded here
-explicitly rather than silently skipped. This file tracks the browser-engine
-/ security items from `TradePilot_AI_PRD_SSD.pdf` that are intentionally not
-(yet) implemented, why, and what a real implementation would need.
+Berdasarkan `CONSTITUTION.md`, item PRD yang tidak diimplementasikan harus dicatat di sini
+secara eksplisit, bukan dilewati begitu saja tanpa keterangan. File ini melacak item
+terkait mesin peramban (browser-engine) atau keamanan dari `TradePilot_AI_PRD_SSD.pdf`
+yang sengaja tidak (belum) diimplementasikan, alasannya, serta apa yang dibutuhkan
+untuk implementasi yang sesungguhnya.
 
-## PRD 2.2.17 "Screen Recorder"
+## PRD 2.2.17 "Screen Recorder" (Perekam Layar)
 
-**Status:** not implemented.
+**Status:** tidak diimplementasikan.
 
-**Why:** real screen-video recording is a fundamentally different problem
-per platform -- Windows needs Desktop Duplication/Media Foundation, Android
-needs `MediaProjection`, macOS needs `ScreenCaptureKit`, and there's no
-single Flutter plugin that wraps all of them to a common, actively
-maintained API today. The PRD's own dependency list (`record` +
-`ffmpeg_kit_flutter`) doesn't actually solve this either: `record` captures
-*audio*, not video, and `ffmpeg_kit_flutter` was deprecated/pulled from
-pub.dev in 2025, would need to be forked, and still wouldn't supply the
-missing platform-native *capture* step -- only encoding once you already
-have frames. Shipping a "screen recorder" built on packages that don't
-record the screen would be worse than not having the feature: it would
-silently produce empty or corrupt output.
+**Alasan:** perekaman video layar yang sesungguhnya merupakan masalah yang secara mendasar
+berbeda di setiap platform—Windows memerlukan *Desktop Duplication*/*Media Foundation*,
+Android memerlukan `MediaProjection`, macOS memerlukan `ScreenCaptureKit`, dan saat ini
+tidak ada satu pun plugin Flutter yang membungkus semuanya ke dalam API umum yang
+dipelihara secara aktif. Daftar dependensi dalam PRD itu sendiri (`record` +
+`ffmpeg_kit_flutter`) sebenarnya juga tidak menyelesaikan masalah ini: `record` menangkap
+*audio*, bukan video, sedangkan `ffmpeg_kit_flutter` telah dihentikan dukungannya/ditarik
+dari pub.dev pada tahun 2025; paket tersebut perlu di-*fork* dan tetap tidak akan menyediakan
+langkah *capture* (penangkapan) tingkat *native* platform yang diperlukan—paket itu hanya
+menangani penyandian (*encoding*) setelah *frame* gambar sudah tersedia. Merilis fitur
+"perekam layar" yang dibangun di atas paket-paket yang tidak benar-benar merekam layar
+akan lebih buruk daripada tidak memiliki fitur tersebut sama sekali: fitur itu akan
+menghasilkan *output* kosong atau rusak tanpa ada peringatan.
 
-**What a real implementation needs:** per-platform native capture
-(`flutter_screen_recording` or a hand-rolled platform channel per OS),
-wired through a shared Dart-side `ScreenRecorderManager` interface so the
-rest of the app (the toolbar button, the recording indicator) doesn't need
-to know which platform it's on. This is native-code work, not something
-safely done as a drive-by addition alongside the rest of the browser engine.
+**Kebutuhan untuk implementasi nyata:** mekanisme *capture* tingkat *native* untuk setiap
+platform (`flutter_screen_recording` atau *platform channel* yang dibuat khusus untuk
+setiap OS), yang dihubungkan melalui antarmuka `ScreenRecorderManager` di sisi Dart
+sehingga bagian aplikasi lainnya (seperti tombol *toolbar* atau indikator perekaman)
+tidak perlu mengetahui platform apa yang sedang digunakan. Ini adalah pekerjaan yang
+melibatkan kode *native*, bukan sesuatu yang aman dilakukan sebagai tambahan sambil lalu
+bersamaan dengan pengembangan mesin peramban lainnya.
 
-## PRD 2.2.18 "Sync" (cross-device)
+## PRD 2.2.18 "Sync" (Sinkronisasi lintas perangkat)
 
-**Status:** not implemented (client-side hooks exist, no backend to call).
+**Status:** tidak diimplementasikan (kait/ *hook* di sisi klien sudah tersedia,
+namun tidak ada *backend* yang dapat dipanggil). 
+**Alasan:** Fitur sinkronisasi secara eksplisit tercantum dalam Fase 4 PRD ("Fitur Lanjutan", setelah Integrasi AI) pada peta jalan/roadmap (§15.4), 
+dan memerlukan rute backend (`POST /api/v1/browser/sync`) yang belum tersedia di `backend/workers/api-gateway`. Membangun *client* sinkronisasi 
+untuk endpoint yang belum ada berarti harus melakukan *mocking* pada backend 
+(yang memberikan kesan keliru bahwa fitur sudah berfungsi) atau membiarkan *client* dalam kondisi terhubung sebagian dan tidak dapat diuji.
 
-**Why:** Sync is explicitly PRD Phase 4 ("Advanced Features", after AI
-Integration) in the roadmap (§15.4), and requires backend routes
-(`POST /api/v1/browser/sync`) that don't exist yet in
-`backend/workers/api-gateway`. Building a sync *client* against a sync
-endpoint that doesn't exist would mean either mocking the backend (giving a
-false sense of the feature working) or leaving the client half-wired and
-untestable.
+**Kondisi saat ini sebagai gantinya:** penyimpanan lokal untuk setiap jenis data yang dapat disinkronisasi 
+(ruang kerja/workspace, tab/sesi, bookmark, riwayat, kata sandi, izin situs, unduhan) 
+sudah ditangani oleh manajer khusus (`WorkspaceManager`, `SessionManager`, `HistoryManager`, 
+`PasswordVault`, `PermissionManager`, `DownloadManager` — semuanya berada di `lib/features/browser_core/services/`), 
+yang masing-masing sudah melakukan serialisasi ke/dari format JSON. Hal ini dilakukan dengan sengaja: 
+tujuannya agar integrasi sinkronisasi yang sesungguhnya nanti cukup dengan 
+menambahkan panggilan `POST`/`GET` yang membungkus data JSON tersebut pada setiap manajer, bukan merancang format serialisasi dari nol.
 
-**What exists today in its place:** local persistence for every syncable
-data type (workspaces, tabs/sessions, bookmarks, history, passwords,
-site permissions, downloads) already goes through a dedicated manager
-(`WorkspaceManager`, `SessionManager`, `HistoryManager`, `PasswordVault`,
-`PermissionManager`, `DownloadManager` -- all in
-`lib/features/browser_core/services/`), each already serializing to/from
-JSON. That's deliberate: it means wiring real sync later is "add a
-`POST`/`GET` call around this JSON on each manager", not "invent a
-serialization format from scratch."
+## PRD 3.2.4 "Certificate Pinning" -- catatan cakupan
 
-## PRD 3.2.4 "Certificate Pinning" -- scope note
+**Status:** sudah diimplementasikan, namun hanya untuk domain backend milik TradePilot sendiri, bukan untuk situs web umum yang dikunjungi pengguna.
 
-**Status:** implemented, but only for TradePilot's own backend domains, not
-arbitrary browsed sites.
-
-This isn't a gap so much as a deliberate scope boundary worth documenting:
-see the header comment in
-`lib/core/network/certificate_pinning.dart` for the reasoning (pinning the
-public web breaks the moment any site rotates its certificate, which is
-routine and expected there). The mechanism is real and wired into the
-shared Dio client (`lib/core/network/api_client.dart`); it is currently
-inert because `CertificatePinningConfig.kPinnedPublicKeyHashes` is
-intentionally empty until the production Cloudflare Worker's certificate
-pins are known at deploy time.
+Ini bukan merupakan kekurangan, melainkan batasan cakupan yang disengaja dan perlu didokumentasikan: 
+lihat komentar pada bagian atas berkas `lib/core/network/certificate_pinning.dart` untuk mengetahui alasannya 
+(melakukan *pinning* pada situs web publik akan menyebabkan kegagalan koneksi segera setelah situs tersebut memperbarui/mengganti sertifikatnya, 
+sebuah prosedur rutin yang lazim terjadi di web publik). 
+Mekanisme ini sudah nyata dan terintegrasi ke dalam *client* Dio bersama (`lib/core/network/api_client.dart`); saat ini mekanisme tersebut tidak aktif 
+karena `CertificatePinningConfig.kPinnedPublicKeyHashes` sengaja dikosongkan hingga *hash* kunci publik sertifikat Cloudflare Worker untuk produksi diketahui pada saat *deployment*.
 
 ## PRD 3.3.4 "DNS over HTTPS"
 
-**Status:** not implemented at the app level.
+**Status:** belum diimplementasikan pada tingkat aplikasi. 
+**Alasan:** `flutter_inappwebview` tidak menyediakan fitur untuk mengganti (override) *resolver* DNS—konfigurasi DNS-over-HTTPS (DoH) 
+dilakukan pada tingkat sistem operasi atau *stack* jaringan (baik Windows 11 maupun Android mendukung pengaktifan DoH di seluruh sistem). 
+Hal ini bukan sesuatu yang dapat diintersepsi secara aman oleh aplikasi Flutter untuk satu *WebView* yang tersemat tanpa menggunakan *stack* jaringan *native* kustom 
+(sesuatu yang sengaja dihindari oleh desain `flutter_inappwebview`—lihat catatan dalam `https_enforcer.dart` 
+mengenai kebijakan untuk tidak mengimplementasikan ulang lapisan transpor platform). 
+Mitigasi praktis yang sudah diterapkan adalah ketentuan PRD 3.2.1/3.2.2 (khusus HTTPS + TLS 1.3), 
+yang memastikan *konten* setiap permintaan dienkripsi secara *end-to-end* meskipun pencarian DNS untuk *hostname* tersebut tidak dienkripsi; 
+DoH sendiri sebenarnya memberikan manfaat privasi tambahan berupa penyembunyian informasi mengenai *hostname* apa yang sedang dicari dari pengamat jaringan.
 
-**Why:** flutter_inappwebview doesn't expose a DNS resolver override --
-DNS-over-HTTPS is configured at the OS/network-stack level (Windows 11 and
-Android both support enabling DoH system-wide), not something a Flutter
-app can safely intercept for a single embedded WebView without a custom
-native network stack (which flutter_inappwebview deliberately avoids by
-design -- see the note in `https_enforcer.dart` about not reimplementing
-the platform's transport layer). The practical mitigation already in place
-is that PRD 3.2.1/3.2.2 (HTTPS-only + TLS 1.3) mean the *content* of every
-request is encrypted end-to-end even if the DNS lookup that resolved the
-hostname wasn't -- DoH would additionally hide *which* hostnames are being
-looked up from a network observer, which is a narrower privacy property.
-
-**What a real implementation needs:** platform-channel code per OS to
-either (a) point the app's own resolver at a DoH endpoint (Windows) or (b)
-prompt the user to enable Android's built-in "Private DNS" setting, since
-neither is reachable through Flutter/Dart alone.
+**Kebutuhan implementasi nyata:** kode *platform-channel* khusus untuk setiap sistem operasi guna 
+(a) mengarahkan *resolver* aplikasi itu sendiri ke *endpoint* DoH (untuk Windows) atau (b) meminta pengguna mengaktifkan pengaturan "Private DNS" bawaan Android, 
+karena kedua tindakan tersebut tidak dapat dilakukan hanya melalui Flutter/Dart
