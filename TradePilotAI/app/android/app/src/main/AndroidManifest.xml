@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- In-app self-updater (core/updater/self_updater_io.dart): lets the
+         downloaded release APK's system install prompt actually launch.
+         Without this, Android silently blocks the install intent for any
+         app not installed from the Play Store. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="tradepilot"
         android:name="${applicationName}"

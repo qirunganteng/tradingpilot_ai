@@ -60,6 +60,36 @@ sebuah prosedur rutin yang lazim terjadi di web publik).
 Mekanisme ini sudah nyata dan terintegrasi ke dalam *client* Dio bersama (`lib/core/network/api_client.dart`); saat ini mekanisme tersebut tidak aktif 
 karena `CertificatePinningConfig.kPinnedPublicKeyHashes` sengaja dikosongkan hingga *hash* kunci publik sertifikat Cloudflare Worker untuk produksi diketahui pada saat *deployment*.
 
+## PRD 3.3.2 "Tracking Protection" -- celah di Windows/Linux/web
+
+**Status:** aktif di Android/iOS/macOS. Sengaja dikosongkan (tidak melakukan apa-apa,
+bukan diam-diam gagal) di Windows, Linux, dan web.
+
+**Alasan:** `ContentBlocker`/`ContentBlockerActionType` dari `flutter_inappwebview`
+adalah pembungkus API `WKContentRuleList` milik WKWebView (iOS/macOS) dan API
+intersepsi permintaan milik Android WebView -- tidak ada padanannya di WebView2
+(Windows) maupun WebKitGTK (Linux). Ini sempat menyebabkan crash nyata (`type
+'Null' is not a subtype of type 'String'`) yang membuat seluruh panel peramban
+gagal dirender di Windows: bukan sekadar "fitur ini tidak berfungsi", melainkan
+constructor `ContentBlockerActionType.BLOCK` itu sendiri melempar exception di
+platform mana pun yang tidak ada dalam tabel nilai per-platform milik enum
+tersebut (dikonfirmasi lewat kode sumber paketnya sendiri di
+`content_blocker_action_type.g.dart`: hanya ada case untuk android/iOS/macOS,
+selebihnya jatuh ke `default: break;` yang mengembalikan `null` untuk kolom
+bertipe String non-nullable).
+
+**Perbaikan yang diterapkan:** `buildTrackerContentBlockers()` di
+`lib/core/security/tracking_protection_lists.dart` sekarang memeriksa platform
+lebih dulu dan mengembalikan daftar kosong di luar Android/iOS/macOS -- objek
+`ContentBlocker` tidak pernah dibuat sama sekali di platform yang tidak
+didukung, bukan dibuat lalu gagal diam-diam.
+
+**Kebutuhan untuk cakupan penuh di Windows/Linux:** pemblokiran tracker perlu
+diimplementasikan lewat jalur lain -- misalnya intersepsi permintaan jaringan
+tingkat native (WebView2 punya API `add_WebResourceRequested` untuk ini), yang
+berarti kode platform-channel Windows khusus, bukan sesuatu yang tersedia lewat
+`flutter_inappwebview` saat ini.
+
 ## PRD 3.3.4 "DNS over HTTPS"
 
 **Status:** belum diimplementasikan pada tingkat aplikasi. 
