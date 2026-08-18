@@ -28,3 +28,4 @@ cloudflare-worker/dist
 *.log
 .env
 .env.local
+/tradingpilot_ai/ 
