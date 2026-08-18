@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../../../core/navigation/dock_panel_header.dart';
 import '../../learning_lofi/providers/audio_provider.dart';
+import '../services/alert_manager.dart';
 import 'orderbook_view.dart';
 import 'journal_view.dart';
 import 'watchlist_view.dart';
@@ -175,30 +176,143 @@ class _LofiMiniBar extends ConsumerWidget {
   }
 }
 
-class _AlertsView extends StatelessWidget {
+class _AlertsView extends ConsumerWidget {
   const _AlertsView();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final alerts = ref.watch(alertsProvider);
     return Container(
       color: const Color(0xFF1E1E1E),
-      padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          Icon(Icons.notifications_none, size: 40, color: Colors.grey[700]),
-          const SizedBox(height: 12),
-          Text('No active alerts', style: TextStyle(color: Colors.grey[400], fontSize: 13)),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('New price alert'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.blueAccent,
-              side: const BorderSide(color: Colors.blueAccent),
+          Expanded(
+            child: alerts.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.notifications_none, size: 40, color: Colors.grey[700]),
+                        const SizedBox(height: 12),
+                        Text('No active alerts', style: TextStyle(color: Colors.grey[400], fontSize: 13)),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: alerts.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFF2A2A2E)),
+                    itemBuilder: (context, index) {
+                      final a = alerts[index];
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          a.isTriggered
+                              ? Icons.notifications_active
+                              : (a.isActive ? Icons.notifications_outlined : Icons.notifications_paused_outlined),
+                          size: 18,
+                          color: a.isTriggered ? Colors.amberAccent : (a.isActive ? Colors.blueAccent[100] : Colors.grey[600]),
+                        ),
+                        title: Text(a.symbol, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500)),
+                        subtitle: Text(
+                          '${a.condition == AlertCondition.above ? 'Above' : 'Below'} ${a.targetPrice}'
+                          '${a.isTriggered ? ' — Triggered' : ''}',
+                          style: TextStyle(fontSize: 11, color: a.isTriggered ? Colors.amberAccent : Colors.grey[500]),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: Icon(a.isActive ? Icons.pause : Icons.play_arrow, size: 16),
+                              tooltip: a.isActive ? 'Pause' : 'Resume',
+                              onPressed: () => ref.read(alertsProvider.notifier).togglePause(a.id),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 16),
+                              tooltip: 'Delete',
+                              onPressed: () => ref.read(alertsProvider.notifier).removeAlert(a.id),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: OutlinedButton.icon(
+              onPressed: () => _showNewAlertDialog(context, ref),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('New price alert'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.blueAccent,
+                side: const BorderSide(color: Colors.blueAccent),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showNewAlertDialog(BuildContext context, WidgetRef ref) {
+    final symbolController = TextEditingController();
+    final priceController = TextEditingController();
+    var condition = AlertCondition.above;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF2D2D30),
+          title: const Text('New price alert', style: TextStyle(fontSize: 15)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: symbolController,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(labelText: 'Symbol', hintText: 'e.g. BTC/USDT'),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<AlertCondition>(
+                      initialValue: condition,
+                      dropdownColor: const Color(0xFF2D2D30),
+                      items: const [
+                        DropdownMenuItem(value: AlertCondition.above, child: Text('Above', style: TextStyle(fontSize: 13))),
+                        DropdownMenuItem(value: AlertCondition.below, child: Text('Below', style: TextStyle(fontSize: 13))),
+                      ],
+                      onChanged: (v) => setDialogState(() => condition = v ?? AlertCondition.above),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: priceController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'Price'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () {
+                final price = double.tryParse(priceController.text.trim());
+                if (symbolController.text.trim().isEmpty || price == null) return;
+                ref.read(alertsProvider.notifier).addAlert(symbolController.text, condition, price);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        ),
       ),
     );
   }

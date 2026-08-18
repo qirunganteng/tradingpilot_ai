@@ -93,4 +93,16 @@ class WorkspaceManager {
       await prefs.setString(_activeKey, id);
     } catch (_) {}
   }
+
+  /// Backs the Settings dialog's "Reset browsing data" action -- wipes
+  /// every saved workspace/tab so the next launch starts genuinely fresh
+  /// (a blank "Default" workspace with one New Tab page), instead of
+  /// forever restoring whatever was open at some point in the past.
+  static Future<void> clearAll() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_workspacesKey);
+      await prefs.remove(_activeKey);
+    } catch (_) {}
+  }
 }

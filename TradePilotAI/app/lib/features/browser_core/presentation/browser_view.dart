@@ -18,8 +18,12 @@ import '../../../core/security/safe_browsing_service.dart';
 import '../../../core/security/tracking_protection_lists.dart';
 import '../../../core/security/fingerprint_protection_script.dart';
 
-/// Default homepage used by the Home button and the very first tab.
-const String kBrowserHomeUrl = 'https://www.tradingview.com/chart/';
+/// Default homepage used by the Home button. Google, matching what every
+/// mainstream browser defaults to -- a genuinely fresh install's first tab
+/// is still a blank "New Tab" search page (see _loadWorkspaceTabs), not
+/// this URL; this only fires when the Home button is tapped, or when
+/// there's no saved session at all to restore (see _initWorkspacesAndRestore).
+const String kBrowserHomeUrl = 'https://www.google.com';
 const String _kVerticalTabsPrefKey = 'tradepilot_browser_vertical_tabs';
 
 class _QuickLink {
@@ -2654,6 +2658,48 @@ class _BrowserSettingsDialogState extends State<_BrowserSettingsDialog> {
                 navigator.pop();
               },
               child: const Text('Clear cookies'),
+            ),
+          ),
+          const Divider(height: 24, color: Color(0xFF1E1E1E)),
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.restart_alt, size: 18, color: Colors.grey),
+            title: const Text('Reset browsing data', style: TextStyle(fontSize: 13)),
+            subtitle: const Text(
+              'Clears saved tabs, workspaces, and history -- next launch starts fresh with a blank New Tab',
+              style: TextStyle(fontSize: 11.5, color: Colors.grey),
+            ),
+            trailing: TextButton(
+              onPressed: () async {
+                final navigator = Navigator.of(context);
+                final messenger = ScaffoldMessenger.of(context);
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: const Color(0xFF2D2D30),
+                    title: const Text('Reset browsing data?', style: TextStyle(fontSize: 15)),
+                    content: const Text(
+                      'This clears every saved workspace, tab, and browsing session. Bookmarks, passwords, and downloads are kept. Restart TradePilot afterward to see a blank New Tab.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reset')),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+                await ws.WorkspaceManager.clearAll();
+                await SessionManager.clearSession();
+                await HistoryManager.clear();
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Browsing data reset. Restart TradePilot to see a fresh start.'), duration: Duration(seconds: 3)),
+                );
+                navigator.pop();
+              },
+              child: const Text('Reset'),
             ),
           ),
         ]);

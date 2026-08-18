@@ -110,6 +110,33 @@ tingkat native (WebView2 punya API `add_WebResourceRequested` untuk ini), yang
 berarti kode platform-channel Windows khusus, bukan sesuatu yang tersedia lewat
 `flutter_inappwebview` saat ini.
 
+## PRD 5.2.2 "Watchlist" / Orderbook -- live data hanya untuk pasangan crypto
+
+**Status:** Watchlist, Orderbook, dan Price Alerts sekarang benar-benar
+fungsional (tambah/hapus/persisten, bukan lagi data statis) -- tapi harga
+**live** hanya tersedia untuk pasangan crypto lewat WebSocket publik
+Binance (`lib/features/trading_workspace/services/market_data_service.dart`),
+tanpa API key.
+
+**Alasan:** forex (EUR/USD), logam (XAU/USD), dan indeks (US30, NAS100)
+tidak punya feed publik gratis yang benar-benar real-time tanpa langganan
+berbayar atau koneksi ke broker (data itu milik penyedia data/broker,
+bukan data publik seperti harga crypto di exchange). Menampilkan angka
+"live" palsu untuk simbol-simbol ini akan lebih buruk daripada jujur
+menyatakan itu manual.
+
+**Yang berfungsi hari ini:** simbol non-crypto tetap bisa
+ditambahkan/dihapus dari Watchlist seperti biasa, harganya diisi/diedit
+manual lewat dialog (tap baris simbolnya), dan Price Alerts tetap berjalan
+normal terhadap harga manual tersebut. Orderbook hanya menampilkan depth
+untuk simbol crypto yang ada di Watchlist (dipilih lewat dropdown) --
+kosong/pesan "tambah pasangan crypto" untuk yang lain.
+
+**Kebutuhan untuk cakupan penuh:** integrasi broker sungguhan (MetaTrader
+5, cTrader, dll. -- PRD §3.4 "Secure Broker Login" / "Multi Broker
+Workspace") atau langganan penyedia data forex berbayar (misal
+OANDA, Polygon.io) untuk feed forex/indeks real-time.
+
 ## PRD 3.3.4 "DNS over HTTPS"
 
 **Status:** belum diimplementasikan pada tingkat aplikasi. 

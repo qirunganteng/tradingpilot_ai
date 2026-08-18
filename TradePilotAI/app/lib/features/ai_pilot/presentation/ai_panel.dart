@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import '../../../core/network/app_config.dart';
 import '../providers/chat_provider.dart';
 import 'chat_view.dart';
 
@@ -26,10 +27,33 @@ class AiPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final hasBackend = ref.watch(appConfigProvider).gatewayToken.isNotEmpty;
     return Container(
       color: const Color(0xFF121212),
       child: Column(
         children: [
+          // The chat below IS functional out of the box -- it just answers
+          // with canned demo text until a real Gateway Token is set in
+          // Settings, which is easy to mistake for "this doesn't do
+          // anything" without this banner explaining why.
+          if (!hasBackend)
+            Container(
+              width: double.infinity,
+              color: Colors.amber.withValues(alpha: 0.12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 13, color: Colors.amber[300]),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Demo mode: replies are simulated. Set a Gateway Token in Settings for real AI.',
+                      style: TextStyle(fontSize: 10.5, color: Colors.amber[200]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Container(
             width: double.infinity,
             color: const Color(0xFF1E1E1E),
