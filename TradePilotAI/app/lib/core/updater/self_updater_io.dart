@@ -63,9 +63,7 @@ class SelfUpdater {
   /// running. The standard, well-established pattern for this (used by
   /// everything from VS Code to Discord's own updaters) is exactly this:
   /// a tiny external helper that starts *after* the app exits, does the
-  /// file copy, then restarts the app. `cmd.exe` + `xcopy` (both built
-  /// into every Windows install, no extra dependency) is that helper
-  /// here.
+  /// file copy, then restarts the app.
   static Future<void> _windowsSelfReplace(String assetUrl, void Function(double, String) onProgress) async {
     final dio = Dio();
     final tempDir = await getTemporaryDirectory();
@@ -114,26 +112,68 @@ class SelfUpdater {
     // Every path is double-quoted -- both this app's own install path and
     // the user's temp path can (and often do, e.g. "C:\Users\John Doe\...")
     // contain spaces.
+    //
+    // Uses `robocopy`, not `xcopy`: xcopy can silently pop up an
+    // interactive "(F = file, D = directory)?" prompt when the
+    // destination's exact directory structure doesn't already match the
+    // source -- and since this batch file runs in a detached, headless
+    // console nobody is watching, that prompt just sits there waiting for
+    // a keystroke that will never come, forever. That's indistinguishable
+    // from a genuine hang from the outside (a black window with no
+    // visible activity), and is the most likely explanation for it ever
+    // looking "stuck" after a real-world update. `robocopy` never prompts
+    // interactively for this. `title` also pins the window's title to
+    // something readable -- left alone, Windows updates a console
+    // window's title to whatever program most recently ran in it, so
+    // this would otherwise keep flashing "tasklist ..." then "find ..."
+    // every second, which reads as broken even when it isn't.
     await batFile.writeAsString('''
 @echo off
-setlocal
+setlocal enabledelayedexpansion
+title TradePilot Updater
 set "TARGET_PID=${pid.toString()}"
 set "INSTALL_DIR=$installDir"
 set "STAGING_DIR=${effectiveStagingDir.path}"
 set "EXE_NAME=$exeName"
+set "UPDATE_ROOT=${updateRoot.path}"
 
+echo ============================================
+echo   TradePilot Updater
+echo ============================================
+echo.
+echo Waiting for TradePilot to close...
+
+set WAITED=0
 :waitloop
 tasklist /FI "PID eq %TARGET_PID%" 2>NUL | find /I "%TARGET_PID%" >NUL
 if "%ERRORLEVEL%"=="0" (
+  set /a WAITED+=1
+  if !WAITED! GEQ 30 (
+    echo TradePilot is taking a while to close -- continuing anyway.
+    goto copy
+  )
   timeout /t 1 /nobreak >NUL
   goto waitloop
 )
 
-xcopy "%STAGING_DIR%\\*" "%INSTALL_DIR%\\" /E /I /Y /Q >NUL
+:copy
+echo TradePilot closed. Installing update, please wait...
+robocopy "%STAGING_DIR%" "%INSTALL_DIR%" /E /NFL /NDL /NJH /NJS /NC /NS >NUL
+if !ERRORLEVEL! GEQ 8 (
+  echo.
+  echo Update failed to copy files ^(robocopy exit code !ERRORLEVEL!^).
+  echo Please download and install the latest release manually from:
+  echo https://github.com/qirunganteng/tradingpilot_ai/releases/latest
+  echo.
+  pause
+  exit /b 1
+)
 
+echo Update installed. Restarting TradePilot...
 start "" "%INSTALL_DIR%\\%EXE_NAME%"
 
-rmdir /S /Q "${updateRoot.path}" >NUL 2>&1
+timeout /t 1 /nobreak >NUL
+rmdir /S /Q "%UPDATE_ROOT%" >NUL 2>&1
 endlocal
 ''');
 
