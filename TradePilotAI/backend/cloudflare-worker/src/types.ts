@@ -111,3 +111,18 @@ export interface RiskRecommendation {
   maxDailyLoss: number;
   maxTrade: number;
 }
+
+/**
+ * PRD 10.5 "Sync" -- one blob per (deviceId, dataType) pushed at once.
+ * `dataType` is client-defined (see db.ts's upsertSyncBlob doc comment);
+ * `payload` is forwarded byte-for-byte, this backend never parses it.
+ */
+export interface SyncPushItem {
+  dataType: string;
+  payload: unknown;
+}
+
+export interface SyncPushRequestBody {
+  deviceId: string;
+  items: SyncPushItem[];
+}

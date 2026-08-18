@@ -55,3 +55,41 @@ export async function logRequest(
     .bind(crypto.randomUUID(), deviceId, endpoint, statusCode, errorMessage, Date.now())
     .run();
 }
+
+/**
+ * PRD 2.2.18 "Sync" / 10.5 -- see the header comment in
+ * migrations/0002_sync_blobs.sql for why this is one generic
+ * (device_id, data_type) -> JSON blob table rather than PRD §9.2's fully
+ * normalized per-column tables. `dataType` is whatever the client sends
+ * ("workspaces", "bookmarks", "history", "watchlist", "journal",
+ * "price_alerts", "passwords", "permissions", "downloads", ...) -- this
+ * layer doesn't validate or interpret the shape, it just stores and
+ * returns it verbatim, so adding a new syncable data type on the Flutter
+ * side never requires a backend migration.
+ */
+export async function upsertSyncBlob(env: Env, deviceId: string, dataType: string, payload: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO sync_blobs (device_id, data_type, payload, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (device_id, data_type) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at`
+  )
+    .bind(deviceId, dataType, payload, Date.now())
+    .run();
+}
+
+export interface SyncBlobRow {
+  data_type: string;
+  payload: string;
+  updated_at: number;
+}
+
+export async function listSyncBlobs(env: Env, deviceId: string, dataType?: string): Promise<SyncBlobRow[]> {
+  const query = dataType
+    ? env.DB.prepare(`SELECT data_type, payload, updated_at FROM sync_blobs WHERE device_id = ? AND data_type = ?`).bind(
+        deviceId,
+        dataType
+      )
+    : env.DB.prepare(`SELECT data_type, payload, updated_at FROM sync_blobs WHERE device_id = ?`).bind(deviceId);
+  const { results } = await query.all<SyncBlobRow>();
+  return results;
+}

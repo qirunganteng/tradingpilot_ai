@@ -7,8 +7,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
-    "db:migrate:local": "wrangler d1 migrations apply tradepilot_db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply tradepilot_db --remote",
+    "db:migrate:local": "wrangler d1 migrations apply tradepilot-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply tradepilot-db --remote",
     "typecheck": "tsc --noEmit",
     "test:e2e": "node scripts/e2e-manual.mjs"
   },

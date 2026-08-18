@@ -1,10 +1,10 @@
-import type { AnalysisResult, AnalyzeRequestBody, CalculateRiskRequestBody, ChatStreamRequestBody, Env, OcrRequestBody, OcrResult } from "./types";
+import type { AnalysisResult, AnalyzeRequestBody, CalculateRiskRequestBody, ChatStreamRequestBody, Env, OcrRequestBody, OcrResult, SyncPushRequestBody } from "./types";
 import { analyzeChartWithGemini, GeminiError } from "./gemini";
 import { streamChat, ChatProviderError } from "./chat";
 import { extractLabelsWithGemini } from "./ocr";
 import { calculateRisk, RiskValidationError } from "./riskEngine";
 import { storeChartImage } from "./storage";
-import { insertAnalysis, listAnalyses, logRequest } from "./db";
+import { insertAnalysis, listAnalyses, listSyncBlobs, logRequest, upsertSyncBlob } from "./db";
 import { checkRateLimit } from "./rateLimit";
 import { isAuthorized } from "./auth";
 import { DEFAULT_METHODS } from "./promptBuilder";
@@ -179,6 +179,56 @@ async function handleHistory(request: Request, env: Env): Promise<Response> {
 }
 
 /**
+ * PRD 10.5 "Sync" -- `POST /api/v1/sync` pushes one or more data-type
+ * blobs (workspaces, bookmarks, history, watchlist, journal,
+ * price_alerts, ...) for a device; `GET /api/v1/sync?deviceId=...`
+ * (optionally `&dataType=...` for just one) pulls them back. No AI cost
+ * involved, so no checkRateLimit here -- same reasoning as
+ * handleCalculateRisk. See db.ts's upsertSyncBlob/listSyncBlobs and
+ * migrations/0002_sync_blobs.sql for why this is one generic blob table
+ * rather than PRD §9.2's fully normalized per-column schema (short
+ * version: there's no user-account layer yet for a `user_id` foreign key
+ * to point at, only per-device tokens -- see that migration's header
+ * comment for the full reasoning and upgrade path).
+ */
+async function handleSyncPush(request: Request, env: Env): Promise<Response> {
+  let deviceId = "unknown";
+  try {
+    const body = (await request.json()) as SyncPushRequestBody;
+    deviceId = body.deviceId;
+    if (!deviceId) return json({ error: "deviceId wajib diisi" }, 400);
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      return json({ error: "items wajib diisi (array, minimal 1)" }, 400);
+    }
+    for (const item of body.items) {
+      if (!item.dataType) return json({ error: "Setiap item wajib punya dataType" }, 400);
+      await upsertSyncBlob(env, deviceId, item.dataType, JSON.stringify(item.payload));
+    }
+    await logRequest(env, deviceId, "/api/v1/sync", 200, null).catch(() => {});
+    return json({ synced: true, count: body.items.length, timestamp: Date.now() }, 200);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Internal error";
+    await logRequest(env, deviceId, "/api/v1/sync", 500, message).catch(() => {});
+    return json({ error: message }, 500);
+  }
+}
+
+async function handleSyncPull(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const deviceId = url.searchParams.get("deviceId");
+  if (!deviceId) return json({ error: "deviceId wajib diisi" }, 400);
+  const dataType = url.searchParams.get("dataType") ?? undefined;
+
+  const rows = await listSyncBlobs(env, deviceId, dataType);
+  const items = rows.map((row) => ({
+    dataType: row.data_type,
+    payload: JSON.parse(row.payload),
+    updatedAt: row.updated_at
+  }));
+  return json({ items }, 200);
+}
+
+/**
  * Fase 7 -- the endpoint the Flutter client's AiStreamService actually
  * calls (`/api/v1/chat/stream`). Wraps chat.ts's unified async-generator
  * stream in the exact SSE wire format the client already knows how to
@@ -271,6 +321,14 @@ export default {
 
     if (url.pathname === "/api/v1/analyses" && request.method === "GET") {
       return handleHistory(request, env);
+    }
+
+    if (url.pathname === "/api/v1/sync" && request.method === "POST") {
+      return handleSyncPush(request, env);
+    }
+
+    if (url.pathname === "/api/v1/sync" && request.method === "GET") {
+      return handleSyncPull(request, env);
     }
 
     return json({ error: "Not found" }, 404);

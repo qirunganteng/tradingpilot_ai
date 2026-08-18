@@ -34,20 +34,40 @@ bersamaan dengan pengembangan mesin peramban lainnya.
 
 ## PRD 2.2.18 "Sync" (Sinkronisasi lintas perangkat)
 
-**Status:** tidak diimplementasikan (kait/ *hook* di sisi klien sudah tersedia,
-namun tidak ada *backend* yang dapat dipanggil). 
-**Alasan:** Fitur sinkronisasi secara eksplisit tercantum dalam Fase 4 PRD ("Fitur Lanjutan", setelah Integrasi AI) pada peta jalan/roadmap (§15.4), 
-dan memerlukan rute backend (`POST /api/v1/browser/sync`) yang belum tersedia di `backend/workers/api-gateway`. Membangun *client* sinkronisasi 
-untuk endpoint yang belum ada berarti harus melakukan *mocking* pada backend 
-(yang memberikan kesan keliru bahwa fitur sudah berfungsi) atau membiarkan *client* dalam kondisi terhubung sebagian dan tidak dapat diuji.
+**Status:** backend siap (deployed, `POST`/`GET /api/v1/sync`), tapi baru
+**tersinkron per-device** (cadangan cloud, bukan sinkronisasi lintas
+perangkat sesungguhnya) -- lihat "Batasan yang disengaja" di bawah. Klien
+Flutter (WorkspaceManager, HistoryManager, dkk.) belum dikabelkan untuk
+memanggil endpoint ini -- masih tersimpan lokal saja.
 
-**Kondisi saat ini sebagai gantinya:** penyimpanan lokal untuk setiap jenis data yang dapat disinkronisasi 
-(ruang kerja/workspace, tab/sesi, bookmark, riwayat, kata sandi, izin situs, unduhan) 
-sudah ditangani oleh manajer khusus (`WorkspaceManager`, `SessionManager`, `HistoryManager`, 
-`PasswordVault`, `PermissionManager`, `DownloadManager` — semuanya berada di `lib/features/browser_core/services/`), 
-yang masing-masing sudah melakukan serialisasi ke/dari format JSON. Hal ini dilakukan dengan sengaja: 
-tujuannya agar integrasi sinkronisasi yang sesungguhnya nanti cukup dengan 
-menambahkan panggilan `POST`/`GET` yang membungkus data JSON tersebut pada setiap manajer, bukan merancang format serialisasi dari nol.
+**Yang sudah dikerjakan:** tabel `sync_blobs` (device_id, data_type,
+payload JSON, updated_at) di-*deploy* ke D1 produksi lewat migration
+`0002_sync_blobs.sql`, dan dua endpoint baru:
+- `POST /api/v1/sync` -- kirim satu atau lebih blob (`{deviceId, items:
+  [{dataType, payload}]}`), payload apa pun bentuknya diteruskan apa
+  adanya, backend tidak menafsirkan isinya sama sekali.
+- `GET /api/v1/sync?deviceId=...&dataType=...` -- ambil kembali blob yang
+  tersimpan untuk perangkat tersebut.
+
+**Batasan yang disengaja:** ini scoped per `deviceId`, bukan per akun
+pengguna -- dua perangkat dengan `deviceId` berbeda tidak akan saling
+melihat data satu sama lain (karena belum ada sistem akun/login di
+backend ini, hanya token gateway tunggal). Jadi hari ini fiturnya adalah
+"cadangan cloud yang bisa dipulihkan di perangkat yang sama" (selamat dari
+uninstall/reinstall), bukan sinkronisasi lintas perangkat penuh. Lihat
+komentar header di `migrations/0002_sync_blobs.sql` untuk alasan lengkap
+kenapa dipilih satu tabel blob generik (bukan skema per-kolom PRD §9.2
+yang mengasumsikan tabel `users`), dan jalur upgrade ke sinkronisasi
+lintas perangkat sesungguhnya (tinggal tambah kolom `user_id` + lapisan
+akun/login di atas skema yang sama, tanpa perlu migrasi ulang bentuk
+tabelnya).
+
+**Langkah selanjutnya yang tersisa:** (1) kabel `WorkspaceManager`,
+`HistoryManager`, `PasswordVault`, `PermissionManager`, `DownloadManager`
+di sisi Flutter untuk memanggil endpoint ini (push saat data berubah,
+pull saat startup); (2) sistem akun/login (PRD §10.1) supaya `deviceId`
+bisa diganti/dilengkapi dengan `user_id` untuk sinkronisasi lintas
+perangkat sungguhan.
 
 ## PRD 3.2.4 "Certificate Pinning" -- catatan cakupan
 
