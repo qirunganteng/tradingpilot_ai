@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../network/app_config.dart';
+import '../plugins/plugin_manager_dialog.dart';
 
 /// TradePilot's own app-level Settings dialog -- distinct from the
 /// embedded browser's Chrome-style settings (which only configures the
@@ -116,27 +117,39 @@ class _AppSettingsDialogState extends ConsumerState<AppSettingsDialog> {
               ),
               const SizedBox(height: 24),
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  TextButton(
+                  OutlinedButton.icon(
                     onPressed: () {
-                      _urlController.text = AppConfig.defaultGatewayUrl;
-                    },
-                    child: const Text('Reset to default'),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: () {
-                      ref.read(appConfigProvider.notifier).setGatewayUrl(_urlController.text);
-                      ref.read(appConfigProvider.notifier).setGatewayToken(_tokenController.text);
                       Navigator.pop(context);
+                      showDialog(context: context, builder: (_) => const PluginManagerDialog());
                     },
-                    child: const Text('Save'),
+                    icon: const Icon(Icons.extension_outlined, size: 16),
+                    label: const Text('Manage Plugins'),
+                  ),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          _urlController.text = AppConfig.defaultGatewayUrl;
+                        },
+                        child: const Text('Reset to default'),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () {
+                          ref.read(appConfigProvider.notifier).setGatewayUrl(_urlController.text);
+                          ref.read(appConfigProvider.notifier).setGatewayToken(_tokenController.text);
+                          Navigator.pop(context);
+                        },
+                        child: const Text('Save'),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -1,9 +1,11 @@
 import 'package:app_links/app_links.dart';
+import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:tradepilot/core/navigation/activity_bar.dart';
+import 'package:tradepilot/core/navigation/app_settings_dialog.dart';
 
 /// Deep link routes for the application
-/// Format: tradingpilot://command/params
+/// Format: tradepilot://command/params
 enum DeepLinkCommand {
   trading,
   aiPilot,
@@ -31,26 +33,26 @@ class DeepLinkData {
   factory DeepLinkData.fromUri(Uri uri) {
     final pathSegments = uri.pathSegments;
 
-    final command = _parseCommand(
-      pathSegments.isNotEmpty ? pathSegments[0] : 'unknown'
-    );
+    // A URI like tradepilot://trading has "trading" as the *host*, not a
+    // path segment (there's no path at all) -- while tradepilot:///trading
+    // (three slashes) puts it in pathSegments[0] instead. Accept both forms
+    // since it's easy for anyone hand-writing a link to use either.
+    final commandStr = pathSegments.isNotEmpty
+        ? pathSegments[0]
+        : (uri.host.isNotEmpty ? uri.host : 'unknown');
 
     return DeepLinkData(
-      command: command,
+      command: _parseCommand(commandStr),
       params: uri.queryParameters,
       rawUrl: uri.toString(),
     );
   }
 
   static DeepLinkCommand _parseCommand(String commandStr) {
-    try {
-      return DeepLinkCommand.values.firstWhere(
-        (e) => e.name == commandStr,
-        orElse: () => DeepLinkCommand.unknown,
-      );
-    } catch (e) {
-      return DeepLinkCommand.unknown;
-    }
+    return DeepLinkCommand.values.firstWhere(
+      (e) => e.name.toLowerCase() == commandStr.toLowerCase(),
+      orElse: () => DeepLinkCommand.unknown,
+    );
   }
 
   @override
@@ -87,48 +89,58 @@ void debugPrintDeepLinkError(String message) {
   }());
 }
 
-/// Handler for processing deep links and navigating. Stateless -- it only
-/// maps a parsed [DeepLinkData] to a [WorkspaceMode], so it doesn't need to
-/// hold a reference to [DeepLinkService] at all.
-class DeepLinkHandler {
-  const DeepLinkHandler();
+/// Applies a parsed [DeepLinkData] directly to the current dock-based
+/// navigation model (see activity_bar.dart's [LeftDockMode] /
+/// [aiPanelVisibleProvider]) -- this replaces an earlier version that
+/// mapped onto a `WorkspaceMode` enum from an older full-workspace-switch
+/// navigation design that the UI no longer uses at all, which meant every
+/// deep link silently did nothing no matter how it was triggered.
+///
+/// Deliberately force-*opens* the target panel (`.set(...)`) rather than
+/// toggling it -- a link should always land you on the thing it names, not
+/// sometimes close it if you happened to already have it open.
+class DeepLinkRouter {
+  const DeepLinkRouter();
 
-  /// Process deep link and return workspace to navigate to
-  WorkspaceMode? processDeepLink(DeepLinkData link) {
+  void handle(BuildContext context, WidgetRef ref, DeepLinkData link) {
     switch (link.command) {
       case DeepLinkCommand.trading:
       case DeepLinkCommand.orderbook:
       case DeepLinkCommand.chart:
       case DeepLinkCommand.portfolio:
-        return WorkspaceMode.trading;
+      case DeepLinkCommand.alerts:
+        ref.read(leftDockModeProvider.notifier).set(LeftDockMode.trading);
+        break;
 
       case DeepLinkCommand.aiPilot:
-        return WorkspaceMode.aiPilot;
+        ref.read(aiPanelVisibleProvider.notifier).set(true);
+        break;
 
       case DeepLinkCommand.community:
-        return WorkspaceMode.social;
+        ref.read(leftDockModeProvider.notifier).set(LeftDockMode.social);
+        break;
 
       case DeepLinkCommand.learning:
-        return WorkspaceMode.learning;
+        ref.read(leftDockModeProvider.notifier).set(LeftDockMode.learning);
+        break;
 
-      case DeepLinkCommand.alerts:
       case DeepLinkCommand.settings:
+        showDialog(context: context, builder: (_) => const AppSettingsDialog());
+        break;
+
       case DeepLinkCommand.unknown:
-        return null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unrecognized link: ${link.rawUrl}')),
+        );
+        break;
     }
   }
-
-  /// Get additional context from deep link params
-  Map<String, String> getContext(DeepLinkData link) => link.params;
 }
 
 /// Riverpod provider for deep link service
 final deepLinkServiceProvider = Provider((_) => DeepLinkService());
 
-/// Riverpod provider for deep link handler
-final deepLinkHandlerProvider = Provider((ref) {
-  return const DeepLinkHandler();
-});
+final deepLinkRouterProvider = Provider((_) => const DeepLinkRouter());
 
 /// Stream of deep link events
 final deepLinkStreamProvider = StreamProvider((ref) {

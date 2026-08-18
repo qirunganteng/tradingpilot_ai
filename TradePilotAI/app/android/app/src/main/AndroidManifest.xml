@@ -29,6 +29,19 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Deep links (core/navigation/deep_link_handler.dart), e.g.
+                 tradepilot://trading, tradepilot://ai-pilot,
+                 tradepilot://settings -- opens the matching panel directly
+                 instead of just launching to whatever was last open.
+                 android:autoVerify is left off since that's for HTTPS App
+                 Links (a real domain TradePilot doesn't have), not a custom
+                 scheme like this one. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="tradepilot"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

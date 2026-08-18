@@ -3,31 +3,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../window_management/browser_fullscreen.dart';
 import 'app_settings_dialog.dart';
 
-/// Legacy full-workspace-switch enum — kept only so [deep_link_handler.dart]
-/// and other older references still compile. The live UI now uses
-/// [LeftDockMode] + [aiPanelVisibleProvider] instead (see below), which
-/// toggle docks around a persistent browser rather than swapping the whole
-/// workspace.
-enum WorkspaceMode {
-  trading,
-  aiPilot,
-  social,
-  learning,
-}
-
-class WorkspaceModeNotifier extends Notifier<WorkspaceMode> {
-  @override
-  WorkspaceMode build() => WorkspaceMode.trading;
-
-  void setMode(WorkspaceMode mode) {
-    state = mode;
-  }
-}
-
-final workspaceModeProvider = NotifierProvider<WorkspaceModeNotifier, WorkspaceMode>(WorkspaceModeNotifier.new);
-
 // ---------------------------------------------------------------------------
-// New VSCode-style dock model
+// VSCode-style dock model
 // ---------------------------------------------------------------------------
 
 /// Which tool panel is shown in the LEFT dock. `null` = dock is collapsed.

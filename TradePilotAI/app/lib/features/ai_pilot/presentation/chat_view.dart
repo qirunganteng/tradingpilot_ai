@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../providers/chat_provider.dart';
 import '../services/ai_stream_service.dart';
+import '../services/chat_session_service.dart' as persisted;
 
 class ChatView extends ConsumerStatefulWidget {
   final VoidCallback? onClose;
@@ -112,6 +113,26 @@ class _ChatViewState extends ConsumerState<ChatView> {
                       ],
                     ),
                   ),
+                ),
+                // New chat -- starts a fresh conversation, the previous
+                // one stays saved and reachable via the history button.
+                IconButton(
+                  icon: const Icon(Icons.add_comment_outlined, size: 15),
+                  tooltip: 'New chat',
+                  onPressed: () {
+                    ref.read(chatProvider.notifier).startNewChat();
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                ),
+                // Chat history — PRD / Chatbox-reference "conversation
+                // management": browse, resume, or delete past chats.
+                IconButton(
+                  icon: const Icon(Icons.history, size: 15),
+                  tooltip: 'Chat history',
+                  onPressed: () => _showHistoryDialog(context, ref),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                 ),
                 // Clear history button
                 IconButton(
@@ -250,5 +271,72 @@ class _ChatViewState extends ConsumerState<ChatView> {
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _showHistoryDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => FutureBuilder<List<persisted.ChatSession>>(
+          future: ref.read(chatProvider.notifier).listSessions(),
+          builder: (context, snapshot) {
+            final sessions = snapshot.data ?? const <persisted.ChatSession>[];
+            return AlertDialog(
+              backgroundColor: const Color(0xFF2D2D30),
+              title: const Text('Chat history', style: TextStyle(fontSize: 15)),
+              content: SizedBox(
+                width: 340,
+                height: 360,
+                child: !snapshot.hasData
+                    ? const Center(child: CircularProgressIndicator())
+                    : sessions.isEmpty
+                        ? Center(
+                            child: Text('No past chats yet.', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                          )
+                        : ListView.builder(
+                            itemCount: sessions.length,
+                            itemBuilder: (context, index) {
+                              final s = sessions[index];
+                              final t = s.updatedAt;
+                              final dateLabel =
+                                  '${t.day.toString().padLeft(2, '0')}/${t.month.toString().padLeft(2, '0')} '
+                                  '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+                              return ListTile(
+                                dense: true,
+                                leading: const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.grey),
+                                title: Text(
+                                  s.title,
+                                  style: const TextStyle(fontSize: 12.5),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '$dateLabel · ${s.messages.length} messages · ${s.aiProvider.toUpperCase()}',
+                                  style: TextStyle(fontSize: 10.5, color: Colors.grey[500]),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 16),
+                                  tooltip: 'Delete',
+                                  onPressed: () async {
+                                    await ref.read(chatProvider.notifier).deleteSession(s.id);
+                                    setDialogState(() {});
+                                  },
+                                ),
+                                onTap: () async {
+                                  await ref.read(chatProvider.notifier).loadSession(s.id);
+                                  if (context.mounted) Navigator.pop(context);
+                                },
+                              );
+                            },
+                          ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 }

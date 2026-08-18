@@ -110,6 +110,52 @@ tingkat native (WebView2 punya API `add_WebResourceRequested` untuk ini), yang
 berarti kode platform-channel Windows khusus, bukan sesuatu yang tersedia lewat
 `flutter_inappwebview` saat ini.
 
+## PRD §11 "Plugin System" -- cakupan: built-in, bukan pihak ketiga
+
+**Status:** infrastruktur nyata sudah ada dan berfungsi
+(`lib/core/plugins/`) -- `TradePilotPlugin` (interface persis sesuai PRD
+§11.2), `PluginManager` (registrasi, aktif/nonaktif tersimpan permanen,
+siklus hidup `onLoad`/`onUnload`), dan `PluginManifest` (bentuk data sesuai
+PRD §11.4). Dibuktikan lewat satu plugin bawaan sungguhan: **Position Size
+Calculator** (PRD §5.3.1), bisa diaktif/nonaktifkan dan dibuka dari
+Settings → Manage Plugins.
+
+**Batasan yang disengaja:** ini sistem plugin untuk kode **bawaan**
+(built-in, dikompilasi bersama aplikasi) -- **bukan** cara memuat kode
+`.dart` pihak ketiga secara dinamis saat runtime. Aplikasi Flutter/Dart
+dikompilasi *ahead-of-time*; tidak ada `eval` atau pemuatan kode native
+dinamis tanpa menyematkan mesin scripting terpisah (misal `hetu_script`),
+yang merupakan pekerjaan jauh lebih besar daripada "antarmuka plugin" dan
+di luar cakupan saat ini. Pola arsitektur ini sama persis dengan bagaimana
+fitur bawaan VS Code dan AppFlowy sendiri bekerja secara internal.
+
+**Kebutuhan untuk plugin pihak ketiga sungguhan:** menyematkan mesin
+scripting (WASM atau interpreter Dart-terbatas), sistem manifest yang
+dibaca dari disk (bukan sekadar dideklarasikan di kode), dan model
+izin/sandbox nyata -- proyek terpisah yang jauh lebih besar dari perluasan
+rutin.
+
+## PRD §12.5 "Deep Link" -- registrasi skema URL Windows belum tersedia
+
+**Status:** penanganan (menerima & merespons link `tradepilot://...`)
+sudah nyata dan ter-*wire* penuh di Android dan di dalam aplikasi itu
+sendiri (`lib/core/navigation/deep_link_handler.dart`, dipasang lewat
+`ref.listen` di `app.dart`) -- sebelumnya kode ini ada tapi memetakan ke
+model navigasi lama (`WorkspaceMode`) yang sudah tidak dipakai UI sama
+sekali, jadi setiap deep link diam-diam tidak melakukan apa pun. Sudah
+diperbaiki untuk memetakan langsung ke model dock aktif (`LeftDockMode` /
+`aiPanelVisibleProvider`).
+
+**Batasan yang tersisa:** Windows tidak mendaftarkan skema `tradepilot://`
+secara otomatis. Registrasi *custom URI protocol* di Windows dilakukan
+lewat entri Windows Registry, yang normalnya ditulis oleh installer (MSI/
+NSIS/Inno Setup) saat instalasi -- karena distribusi Windows TradePilot
+saat ini berupa zip polos (bukan installer), tidak ada langkah otomatis
+yang menulis entri registry tersebut. Klik `tradepilot://...` dari luar
+aplikasi (mis. dari browser lain) di Windows tidak akan membuka
+TradePilot sampai ada installer sungguhan atau skrip registrasi registry
+manual dijalankan.
+
 ## PRD 5.2.2 "Watchlist" / Orderbook -- live data hanya untuk pasangan crypto
 
 **Status:** Watchlist, Orderbook, dan Price Alerts sekarang benar-benar

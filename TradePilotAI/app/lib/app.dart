@@ -7,6 +7,7 @@ import 'dart:io' show Platform;
 import 'core/window_management/custom_title_bar.dart';
 import 'core/window_management/browser_fullscreen.dart';
 import 'core/navigation/activity_bar.dart';
+import 'core/navigation/deep_link_handler.dart';
 import 'core/navigation/workspace_content.dart';
 import 'core/updater/update_checker.dart';
 
@@ -39,6 +40,7 @@ class MainWorkspace extends ConsumerStatefulWidget {
 class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
   bool _isWebFullscreen = false;
   final FocusNode _escapeFocusNode = FocusNode();
+  bool _consumedInitialDeepLink = false;
 
   @override
   void dispose() {
@@ -49,6 +51,25 @@ class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+    // FlClash-style deep-link handling (tradepilot://trading,
+    // tradepilot://ai-pilot, ...): a link received while the app is already
+    // running arrives on deepLinkStreamProvider; a link the app was *launched
+    // with* (cold start) arrives once via initialDeepLinkProvider instead --
+    // both funnel into the same DeepLinkRouter so either path opens the same
+    // panel. ref.listen (not .watch) since this is a one-shot side effect,
+    // not something the build method should re-render off of.
+    ref.listen(deepLinkStreamProvider, (previous, next) {
+      next.whenData((link) => ref.read(deepLinkRouterProvider).handle(context, ref, link));
+    });
+    ref.listen(initialDeepLinkProvider, (previous, next) {
+      if (_consumedInitialDeepLink) return;
+      next.whenData((link) {
+        if (link == null) return;
+        _consumedInitialDeepLink = true;
+        ref.read(deepLinkRouterProvider).handle(context, ref, link);
+      });
+    });
 
     // Note: the old fixed-width, always-empty "Sidebar" panel was removed.
     // WorkspaceContentBuilder below now renders one persistent 3-column
